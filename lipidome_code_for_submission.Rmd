@@ -1,0 +1,1881 @@
+---
+title: Final Lipidomic Analysis with Updated MZmine Results
+author: "Andrew Patt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    self_contained: no
+    code_folding: hide
+    theme: cerulean
+    highlight: tango
+---
+
+```{r,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE,warning=FALSE, 
+    fig.height=6,fig.width = 12,fig.fullwidth = TRUE)
+```
+
+```{r, Remove duplicates}
+source("~/Desktop/LipidMatch/remove_duplicates/2018_6_2_remove_duplicates.R")
+```
+
+```{r, Libraries}
+library(tidyverse)
+library(RColorBrewer)
+library(gplots)
+library(readxl)
+library(plotly)
+library(reshape)
+library(lme4)
+library(pbapply)
+library(sjstats)
+library(UpSetR)
+library(RColorBrewer)
+library(cowplot)
+```
+
+```{r, Set statistical cutoffs}
+p_thresh <- 0.05
+fc_thresh <- 0.75
+```
+
+# Analysis {.tabset}
+## Build a key of sample pairs
+```{r, Organize sample info}
+setwd("~/Desktop/Liposarcoma project/Lipidyzer/")
+sample_IDs<-read.csv("~/Desktop/Liposarcoma project/Lipidyzer/Sample_IDs.csv")
+sample_info<-read.csv("~/Desktop/Liposarcoma project/final_lipidomic_analysis/Cell_Run_Order.csv")
+
+mdm2lo_groups=c("863","815","224B")
+mdm2hi_groups=c("224","224A","246","141")
+
+POS_Numbers<-c()
+for(i in 1:82){
+    POS_Numbers<-
+        c(POS_Numbers,
+          strsplit(
+              strsplit(
+                  as.character(
+                      sample_IDs$POSITIVE[i]),"_")[[1]][2],"-")[[1]][1])
+}
+
+POS_Cell_Lines<-c()
+for(i in 1:82){
+    POS_Cell_Lines<-c(POS_Cell_Lines,
+                      strsplit(as.character(sample_IDs$POSITIVE[i]),"-")[[1]][2])
+}
+
+POS_MDM2_Status<-c()
+for(i in POS_Cell_Lines){
+    index<-match(i,sample_info$Number)
+    POS_MDM2_Status<-c(POS_MDM2_Status,as.character(sample_info$CellLine[index]))
+}
+                                        #POS_MDM2_Status[which(POS_MDM2_Status=="141")]<-NA
+
+## POS_MDM2_Status<-sapply(POS_MDM2_Status,
+##                         function(x) if(x %in% mdm2lo_groups)
+##                                     {return("Low")}
+##                                     else if (x %in% mdm2hi_groups)
+##                                     {return("High")} else return(NA))
+
+POS_Treatment_Status<-c()
+for(i in POS_Cell_Lines){
+    index<-match(i,sample_info$Number)
+    POS_Treatment_Status<-c(POS_Treatment_Status,
+                            as.character(sample_info$Treatment[index]))
+}
+
+POS_medium<-c()
+for(i in POS_Cell_Lines){
+    index<-match(i,sample_info$Number)
+    POS_medium<-c(POS_medium,as.character(sample_info$Media[index]))
+}
+
+POS_sample_info<-data.frame(Run_Order=POS_Numbers,
+                            Number=POS_Cell_Lines,
+                            Cell_line=POS_MDM2_Status,
+                            Treatment_Status=POS_Treatment_Status,
+                            Medium=POS_medium,
+                            MDM2_status=ifelse(POS_MDM2_Status %in% mdm2lo_groups,"low","high"))
+
+#POS_sample_info<-POS_sample_info[-52,]
+#POS_sample_info<-POS_sample_info[-40,]
+
+paired_key <- POS_sample_info
+paired_key <- paired_key %>% filter(!is.na(Cell_line))
+
+# Make lists of which samples go where and use intersections for easy plotting!
+MDM2Hi_samples<-as.vector(POS_sample_info$Run_Order)[which(POS_sample_info$MDM2_status=="high")]
+MDM2Lo_samples<-as.vector(POS_sample_info$Run_Order)[which(POS_sample_info$MDM2_status=="low")]
+
+Treated_samples<-as.vector(POS_sample_info$Run_Order)[which(POS_sample_info$Treatment_Status=="Atorvastatin")]
+Untreated_samples<-as.vector(POS_sample_info$Run_Order)[which(POS_sample_info$Treatment_Status=="none")]
+
+STDP_samples<-as.vector(POS_sample_info$Run_Order)[which(POS_sample_info$Medium=="STDP")]
+DMEM_samples<-as.vector(POS_sample_info$Run_Order)[which(POS_sample_info$Medium=="DMEM")]
+
+```
+
+```{r, Read in and clean data,fig.height=6,fig.width=8}
+POS_data<-read.csv("~/Desktop/Liposarcoma\ project/final_lipidomic_analysis/PosIDed.csv")
+NEG_data<-read.csv("~/Desktop/Liposarcoma\ project/final_lipidomic_analysis/NegIDed.csv")
+
+colnames(NEG_data)[9:ncol(NEG_data)]<-sapply(colnames(NEG_data)[9:ncol(NEG_data)], function(x) return(strsplit(x,"\\.")[[1]][2]))
+colnames(POS_data)[9:ncol(POS_data)]<-sapply(colnames(POS_data)[9:ncol(POS_data)], function(x) return(strsplit(x,"\\.")[[1]][2]))
+
+colnames(NEG_data)[9:ncol(NEG_data)]<-paste0(colnames(NEG_data)[9:ncol(NEG_data)]," Peak area")
+colnames(POS_data)[9:ncol(POS_data)]<-paste0(colnames(POS_data)[9:ncol(POS_data)]," Peak area")
+
+POS_data_numeric<-POS_data[,-c(1:8)]
+NEG_data_numeric<-NEG_data[,-c(1:8)]
+
+POS_sample_type<-sapply(colnames(POS_data_numeric),function(x){
+    if(grepl("POOL",x)){
+        return("Pool")
+    }else if(grepl("BLANK",x)){
+        return("Blank")
+    }else{
+        sample_number<-gsub(" Peak area","",x)
+        out<-paired_key %>%
+            filter(Number==sample_number) %>%
+            dplyr::select(Cell_line,Treatment_Status,Medium) %>%
+            as.matrix() %>%
+            as.vector() %>%
+            paste0(collapse="_")
+        return(out)
+    }
+})
+
+NEG_sample_type<-sapply(colnames(NEG_data_numeric),function(x){
+    if(grepl("POOL",x)){
+        return("Pool")
+    }else if(grepl("BLANK",x)){
+        return("Blank")
+    }else{
+        sample_number<-gsub(" Peak area","",x)
+        out<-paired_key %>%
+            filter(Number==sample_number) %>%
+            dplyr::select(Cell_line,Treatment_Status,Medium) %>%
+            as.matrix() %>%
+            as.vector() %>%
+            paste0(collapse="_")
+        return(out)
+    }
+})
+
+drop_indices = !grepl("STDP",POS_sample_type)
+treated = grepl("Atorvastatin",POS_sample_type)
+POS_sample_type = gsub("_Atorvastatin_DMEM","",POS_sample_type)
+POS_sample_type = gsub("_none_DMEM","",POS_sample_type)
+
+
+mypca=prcomp(t(POS_data_numeric[,drop_indices]),center=T,scale=T)
+percvar=round((mypca$sdev)^2 / sum(mypca$sdev^2)*100,2)
+mydf=data.frame(PC1=mypca$x[,"PC1"],PC2=mypca$x[,"PC2"],PC3=mypca$x[,"PC3"],
+                Type=POS_sample_type[drop_indices],
+                treated=treated[drop_indices])
+
+
+p <- ggplot(mydf,aes(PC1,PC2,color=Type,shape=treated)) +
+    geom_point(aes(PC1,PC2),size=4) +
+    scale_color_brewer(palette="Set1") +
+    xlab(paste0("PC1: ",percvar[1],"% variance")) +
+    ylab(paste0("PC2: ",percvar[2],"% variance")) +
+    ggtitle("PCA, Positive mode") +
+    theme_bw(base_size=24) +
+    theme(axis.line = element_line(colour = "black"),
+          ##axis.title=element_text(size=12,face="bold"),
+          plot.title=element_text(size=16,face="bold"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          legend.key=element_blank())
+p
+
+drop_indices = !grepl("STDP",NEG_sample_type)
+treated = grepl("Atorvastatin",NEG_sample_type)
+NEG_sample_type = gsub("_Atorvastatin_DMEM","",NEG_sample_type)
+NEG_sample_type = gsub("_none_DMEM","",NEG_sample_type)
+
+
+mypca=prcomp(t(NEG_data_numeric[,drop_indices]),center=T,scale=T)
+percvar=round((mypca$sdev)^2 / sum(mypca$sdev^2)*100,2)
+mydf=data.frame(PC1=mypca$x[,"PC1"],PC2=mypca$x[,"PC2"],PC3=mypca$x[,"PC3"],
+                Type=NEG_sample_type[drop_indices],
+                treated=treated[drop_indices])
+
+
+p <- ggplot(mydf,aes(PC1,PC2,color=Type,shape=treated)) +
+    geom_point(aes(PC1,PC2),size=4) +
+    scale_color_brewer(palette="Set1") +
+    xlab(paste0("PC1: ",percvar[1],"% variance")) +
+    ylab(paste0("PC2: ",percvar[2],"% variance")) +
+    ggtitle("PCA, Negative mode") +
+    theme_bw(base_size=24) +
+    theme(axis.line = element_line(colour = "black"),
+          ##axis.title=element_text(size=12,face="bold"),
+          plot.title=element_text(size=16,face="bold"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          legend.key=element_blank())
+p
+
+# Remove Blanks and Pools
+POS_data<-POS_data[!grepl("POOL",colnames(POS_data))]
+POS_data<-POS_data[!grepl("BLANK",colnames(POS_data))]
+NEG_data<-NEG_data[!grepl("POOL",colnames(NEG_data))]
+NEG_data<-NEG_data[!grepl("BLANK",colnames(NEG_data))]
+
+par(mfrow=c(1,2))
+boxplot(POS_data[,9:ncol(POS_data)],main="Raw Data, POS mode")
+boxplot(NEG_data[,9:ncol(NEG_data)],main="Raw Data, NEG mode")
+par(mfrow=c(1,1))
+```
+
+```{r, Normalize and log transform}
+POS_median<-median(apply(POS_data[,9:ncol(POS_data)],2,sum))
+NEG_median<-median(apply(NEG_data[,9:ncol(NEG_data)],2,sum))
+
+TICnormalize<-function(x,mode) {
+    if(mode=="POS"){
+        TICmedian<-POS_median
+    } else if(mode=="NEG"){
+        TICmedian<-NEG_median
+    }
+    (x/sum(x))*TICmedian
+    #(x/sum(x))*median(x)
+}
+
+factors<-function(x,mode) {
+    if(mode=="POS"){
+        TICmedian<-POS_median
+    } else if(mode=="NEG"){
+        TICmedian<-NEG_median
+    }
+    (1/sum(x))*TICmedian
+    #(x/sum(x))*median(x)
+}
+
+POS_data[,9:ncol(POS_data)]<-apply(POS_data[,9:ncol(POS_data)],2,TICnormalize, mode="POS")
+NEG_data[,9:ncol(NEG_data)]<-apply(NEG_data[,9:ncol(NEG_data)],2,TICnormalize, mode="NEG")
+
+par(mfrow=c(1,2))
+boxplot(POS_data[,9:ncol(POS_data)],main="Normalized Data, POS mode")
+boxplot(NEG_data[,9:ncol(NEG_data)],main="Normalized Data, NEG mode")
+par(mfrow=c(1,1))
+
+plot(apply(POS_data[,9:ncol(POS_data)],2,sum),main="Sum intensity, POS mode")
+
+POS_data[,9:ncol(POS_data)]<-POS_data[,9:ncol(POS_data)]+0.001
+NEG_data[,9:ncol(NEG_data)]<-NEG_data[,9:ncol(NEG_data)]+0.001
+
+POS_data[,9:ncol(POS_data)]<-log(POS_data[,9:ncol(POS_data)],base=2)
+NEG_data[,9:ncol(NEG_data)]<-log(NEG_data[,9:ncol(NEG_data)],base=2)
+
+par(mfrow=c(1,2))
+boxplot(POS_data[,9:ncol(POS_data)],main="Log Transform/Normalized Data, POS mode")
+boxplot(NEG_data[,9:ncol(NEG_data)],main="Log Transform/Normalized Data, NEG mode")
+par(mfrow=c(1,1))
+
+```
+
+```{r, Merge and Deduplicate}
+invisible(capture.output(data_merged<-merge_modes(POS_data,NEG_data)))
+data_merged<-remove_duplicates(data_merged,1,7,4,0.1)
+
+#boxplot(data_merged[,11:(ncol(data_merged)-2)])
+
+LM_melted<-melt(data_merged[,9:(ncol(data_merged)-2)])
+
+ggplot(LM_melted, aes(x=variable,y=value)) +
+    geom_boxplot() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+LM_area<-data_merged[,9:(ncol(data_merged)-2)]
+rownames(LM_area)<-data_merged[,ncol(data_merged)-1]
+
+colnames(LM_area)<-POS_sample_info$Run_Order[match(gsub("\\D", "", colnames(LM_area)),POS_sample_info$Number)]
+```
+
+```{r, Impute}
+hist(apply(LM_area,1,function(x) return(length(which(x==min(LM_area)))/ncol(LM_area))),main="Proportion of missing values by metabolite")
+
+LM_area <- 
+    apply(LM_area,1,function(x){
+        if(any(x==min(LM_area))){
+            nm<-x[-which(x==min(LM_area))]
+            x[which(x==min(LM_area))] = min(nm)
+        }
+        return(x)
+    }) %>% t() %>% as.data.frame()
+```
+
+```{r, Set up statistical groups}
+groupMDM2Hi_Untreated_STDP<-intersect(MDM2Hi_samples,intersect(Untreated_samples,STDP_samples))
+groupMDM2Hi_Untreated_DMEM<-intersect(MDM2Hi_samples,intersect(Untreated_samples,DMEM_samples))
+groupMDM2Lo_Untreated_STDP<-intersect(MDM2Lo_samples,intersect(Untreated_samples,STDP_samples))
+groupMDM2Lo_Untreated_DMEM<-intersect(MDM2Lo_samples,intersect(Untreated_samples,DMEM_samples))
+
+groupMDM2Hi_Treated_STDP<-intersect(MDM2Hi_samples,intersect(Treated_samples,STDP_samples))
+groupMDM2Hi_Treated_DMEM<-intersect(MDM2Hi_samples,intersect(Treated_samples,DMEM_samples))
+groupMDM2Lo_Treated_STDP<-intersect(MDM2Lo_samples,intersect(Treated_samples,STDP_samples))
+groupMDM2Lo_Treated_DMEM<-intersect(MDM2Lo_samples,intersect(Treated_samples,DMEM_samples))
+
+lipidomic_key<-read.csv("~/Desktop/Liposarcoma project/final_lipidomic_analysis/Lipidomic_Key_Updated.csv")
+lipidomic_key <- lipidomic_key[match(rownames(LM_area),lipidomic_key$name),]
+
+
+
+```
+
+## All samples {.tabset}
+### Panel composition
+```{r, Panel composition, fig.width=18, fig.height=8}
+
+palette<-c(brewer.pal(12,"Paired"),"#40E0D0","violet","grey80")
+
+lipidomic_key <- within(lipidomic_key, 
+                   LM.Main.Class <- factor(LM.Main.Class, 
+                                      levels=names(sort(table(LM.Main.Class), 
+                                                        decreasing=TRUE))))
+saveRDS(lipidomic_key, file="~/Documents/andyptt21.github.io/Thesis_presentation_3_4/img/lipidomic_key.Rds")
+ggplot(lipidomic_key,aes(x=LM.Main.Class,fill=LM.Main.Class))+
+    geom_bar()+
+    labs(y = "# of Lipids") +
+    theme_classic(base_size=22) +
+    theme(axis.text.x = element_text(angle=30,
+                                     hjust=1,size=22,
+                                     face="bold"),
+          axis.text.y =element_text(size=36),
+          plot.margin=unit(c(5.5, 5.5, 5.5, 150), "points")) +
+    scale_fill_manual(values=palette) +
+    labs(x="") +
+    guides(fill=FALSE)
+    
+
+```
+
+### PCA
+```{r, PCA, all samples,fig.height=12,fig.width=10}
+
+## Type=c()
+## drop_indices=c()
+## for(i in 1:ncol(LM_area)){
+##     if(i %in% as.numeric(groupMDM2Hi_Treated_DMEM)){
+##         Type=c(Type,"groupMDM2Hi_Treated_DMEM")
+##     }else if(i %in% as.numeric(groupMDM2Lo_Treated_DMEM)){
+##         Type=c(Type,"groupMDM2Lo_Treated_DMEM")
+##     }else if(i %in% as.numeric(groupMDM2Hi_Untreated_DMEM)){
+##         Type=c(Type,"groupMDM2Hi_Untreated_DMEM")
+##     }else if(i %in% as.numeric(groupMDM2Lo_Untreated_DMEM)){
+##         Type=c(Type,"groupMDM2Lo_Untreated_DMEM")
+##     }else if(i %in% as.numeric(groupMDM2Hi_Treated_STDP)){
+##         Type=c(Type,"groupMDM2Hi_Treated_STDP")
+##     }else if(i %in% as.numeric(groupMDM2Lo_Treated_STDP)){
+##         Type=c(Type,"groupMDM2Lo_Treated_STDP")
+##     }else if(i %in% as.numeric(groupMDM2Hi_Untreated_STDP)){
+##         Type=c(Type,"groupMDM2Hi_Untreated_STDP")
+##     }else if(i %in% as.numeric(groupMDM2Lo_Untreated_STDP)){
+##         Type=c(Type,"groupMDM2Lo_Untreated_STDP")
+##     }else{
+##         drop_indices=c(drop_indices,i)
+##     }
+## }
+
+Type = paste0(paired_key$Treatment_Status,paired_key$MDM2_status)
+
+STDP_indices=which(paired_key$Medium=="STDP")
+Type=Type[-STDP_indices]
+
+PCA_df <- LM_area
+PCA_df <- PCA_df[,-STDP_indices]
+
+Cell <- paired_key$Cell_line
+Cell <- Cell[-STDP_indices]
+
+mypca=prcomp(t(PCA_df),center=T,scale=T)
+percvar=round((mypca$sdev)^2 / sum(mypca$sdev^2)*100,2)
+mydf=data.frame(PC1=mypca$x[,"PC1"],PC2=mypca$x[,"PC2"],PC3=mypca$x[,"PC3"],
+                Type=Type,
+                Cell=Cell)
+palette = brewer.pal(6, "Paired")[c(5,6,1,2)]
+
+
+p <- ggplot(mydf,aes(PC1,PC2,shape=Type,color=Cell)) +
+    geom_point(aes(PC1,PC2),size=4) +
+    scale_color_brewer(palette="Set1") +
+    ## scale_color_manual(labels = c("MDM2 Hi + Atorvastatin", "MDM2 Hi Untreated",
+    ##                               "MDM2 Lo + Atorvastatin", "MDM2 Lo Untreated"),
+    ##                    values=palette) +
+    xlab(paste0("PC1: ",percvar[1],"% variance")) +
+    ylab(paste0("PC2: ",percvar[2],"% variance")) +
+    ggtitle("PCA, all lipidomic samples") +
+    theme_bw(base_size=18) +
+    theme(axis.line = element_line(colour = "black"),
+          ##axis.title=element_text(size=12,face="bold"),
+          plot.title=element_text(size=16,face="bold"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          legend.key=element_blank())
+p
+
+```
+
+### Heatmap of glycosylated ceramides and regular ceramides
+
+```{r, Glycosylated Ceramides,fig.height=6, fig.width=15}
+GlcCer_LM_area <- LM_area[c(which(as.vector(lipidomic_key$LM.Main.Class)==
+                                  "Neutral glycosphingolipids")),]#,
+                            ## which(as.vector(lipidomic_key$LM.Main.Class)==
+                            ##       "Ceramides")),]
+
+
+Untreated_DMEM_indices <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none") %>%
+    select(Run_Order)
+
+GlcCer_LM_area<-GlcCer_LM_area[,as.vector(t(Untreated_DMEM_indices))]
+
+mystatus=
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none") %>%
+    select(MDM2_status)
+mycell=
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none") %>%
+    select(Cell_line)
+
+## This one ceramide was absent in two samples so it's an outlier
+y=as.matrix(GlcCer_LM_area)
+
+##hc <- hclust(as.dist(1-cor(y, method="spearman")), method="complete")
+hc <- hclust(dist(t(y)), method="complete")
+## Plot heatmap 
+
+col_colors<-sapply(colnames(GlcCer_LM_area),function(x){
+    ifelse(x %in% MDM2Hi_samples,return("red"),return("blue"))
+})
+
+##mycol = colorRampPalette(brewer.pal(11, "RdYlGn"))(100)
+mycol = colorRampPalette(c("blue", "white","red"))(100)
+
+heatmap.2(y, Colv=as.dendrogram(hc), col=mycol, scale="row", density.info="none",
+          trace="none",dendrogram = "col", lhei=c(1.5,5,1),
+          lwid=c(1.5, 3),
+          ColSideColors = col_colors,
+          tracecol = "black",
+          labCol=as.vector(t(mycell)),
+          cexRow = 2,
+          cexCol = 2,
+          margins=c(10,32))
+mycol=c("red","blue")
+
+plot<-heatmap.2(y, Colv=as.dendrogram(hc), col=mycol, scale="row", density.info="none",
+          trace="none",dendrogram = "col", lhei=c(1.5,5,1),
+          lwid=c(1.5, 3),
+          ColSideColors = col_colors,
+          tracecol = "black",
+          labCol=as.vector(t(mycell)),
+          cexRow = 2,
+          cexCol=2,
+          margins=c(10,32))
+```
+
+```{r, fig.height=8/3,fig.width=6}
+boxplotter <- function(analyte) {
+    analyteInd <- match(analyte, rownames(GlcCer_LM_area))
+    BPdf <- data.frame(categ = mycell,
+                       value = t(GlcCer_LM_area[analyteInd,]),
+                       status = mystatus)
+    colnames(BPdf) <- c("categ", "log2Abundance","status")
+    ##mdm2_labs<-c("MDM2Hi","MDM2Lo")
+    p <-BPdf %>%
+        mutate(status=ifelse(status=="high","MDM2Hi","MDM2Lo")) %>%
+        ggplot(aes(x = categ, y = log2Abundance)) +
+        ggtitle(analyte) +
+        geom_jitter(width = 0.125,size=3) +
+        scale_color_brewer(type="seq",palette="Set2") +
+        facet_grid(.~status,scales="free") +
+        geom_boxplot(aes(x=status,y=log2Abundance,fill=status),alpha=0.25) +
+        scale_fill_manual(values=mycol) +
+        theme_bw() +
+        theme(legend.position = "none",axis.title.x=element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), text = element_text(size=20))
+    return(p)
+}
+
+
+
+boxplotter("HexCer-NS(d18:1/16:0)")
+## boxplotter("HexCer-NS(d18:1/23:0)")
+## boxplotter("HexCer-NS(d18:1/24:0)")
+## boxplotter("HexCer-NS(d18:1/24:1)")
+## boxplotter("HexCer-NS(d18:1/26:1)")
+## boxplotter("HexCer-NS(d19:1/25:0)")
+```
+
+### Linear Mixed effect models (p value histograms)
+#### Treated vs. Untreated
+```{r}
+
+## Filter to treated vs untreated
+Treated_untreated_indices <-
+    paired_key %>%
+    filter(Medium=="DMEM") %>%
+    select(Run_Order)
+
+LM_area_DMEM <- LM_area %>%
+    select(as.vector(t(Treated_untreated_indices)))
+
+cell <-
+    paired_key %>%
+    filter(Medium=="DMEM") %>%
+    select(Cell_line)
+
+treatment <-
+    paired_key %>%
+    filter(Medium=="DMEM") %>%
+    select(Treatment_Status)
+
+
+## return eta_sq(fit)
+if(!exists("TreVsUntreLMME")){
+    TreVsUntreLMME<-t(pbapply(LM_area_DMEM, 1, function(x){
+        df<-data.frame(y=x,cell=unlist(cell),treatment=unlist(treatment))
+        colnames(df)[1]="y"
+        treated<-df %>%
+            filter(treatment=="Atorvastatin") %>%
+            select(y)
+        untreated<-df %>%
+            filter(treatment=="none") %>%
+            select(y)
+        log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+        fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+        fit<-lmer(y ~ treatment + (1|cell), data = df,REML=FALSE)
+        anovaFit<-anova(fit.null,fit)
+        return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+    }))
+
+    TreVsUntreLMME<-as.data.frame(TreVsUntreLMME)
+    colnames(TreVsUntreLMME)<-c("myp","eta_sq","log2fc")
+    TreVsUntreLMMEAdj<-TreVsUntreLMME$mypadj<-p.adjust(TreVsUntreLMME$myp,method="fdr")
+    TreVsUntreLMME$name<-rownames(TreVsUntreLMME)
+
+    write.csv(TreVsUntreLMME,file="~/Desktop/LMME_treatment_results.csv")
+}
+hist(TreVsUntreLMMEAdj,breaks=100)
+
+```
+
+
+
+#### DMEM vs STDP
+
+```{r}
+
+DMEM_STDP_indices <-
+    paired_key %>%
+    filter(Treatment_Status=="none") %>%
+    select(Run_Order)
+
+LM_area_untreated <- LM_area %>%
+    select(as.vector(t(DMEM_STDP_indices)))
+
+cell <-
+    paired_key %>%
+    filter(Treatment_Status=="none") %>%
+    select(Cell_line)
+
+medium <-
+    paired_key %>%
+    filter(Treatment_Status=="none") %>%
+    select(Medium)
+
+## return eta_sq(fit)
+if(!exists("DMEMVsSTDPLMME")){
+    DMEMVsSTDPLMME<-t(pbapply(LM_area_untreated, 1, function(x){
+        df<-data.frame(y=x,cell=unlist(cell),medium=unlist(medium))
+        colnames(df)[1]="y"
+        treated<-df %>%
+            filter(medium=="STDP") %>%
+            select(y)
+        untreated<-df %>%
+            filter(medium=="DMEM") %>%
+            select(y)
+        log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+        fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+        fit<-lmer(y ~ medium + (1|cell), data = df,REML=FALSE)
+        anovaFit<-anova(fit.null,fit)
+        return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+    }))
+
+    DMEMVsSTDPLMME<-as.data.frame(DMEMVsSTDPLMME)
+    colnames(DMEMVsSTDPLMME)<-c("myp","eta_sq","log2fc")
+    DMEMVsSTDPLMMEAdj<-DMEMVsSTDPLMME$mypadj<-p.adjust(DMEMVsSTDPLMME$myp,method="fdr")
+    DMEMVsSTDPLMME$name<-rownames(DMEMVsSTDPLMME)
+    write.csv(DMEMVsSTDPLMME,file="~/Desktop/LMME_lipidomic_results.csv")
+}
+hist(DMEMVsSTDPLMMEAdj,breaks=100)
+
+```
+
+#### STDP treated vs DMEM untreated
+
+```{r}
+Treated_STDP_indices <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none" |
+           Medium=="STDP" & Treatment_Status=="Atorvastatin") %>%
+    select(Run_Order)
+
+
+LM_area_double <- LM_area %>%
+    select(as.vector(t(Treated_STDP_indices)))
+
+cell <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none" |
+           Medium=="STDP" & Treatment_Status=="Atorvastatin") %>%
+    select(Cell_line)
+
+treatment <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none" |
+           Medium=="STDP" & Treatment_Status=="Atorvastatin") %>%
+    select(Treatment_Status)
+
+if(!exists("STDPTreVsDMEMUntreLMME")){
+    STDPTreVsDMEMUntreLMME<-t(pbapply(LM_area_double, 1, function(x){
+        df<-data.frame(y=x,cell=unlist(cell),treatment=unlist(treatment))
+        colnames(df)[1]="y"
+        treated<-df %>%
+            filter(treatment=="Atorvastatin") %>%
+            select(y)
+        untreated<-df %>%
+            filter(treatment=="none") %>%
+            select(y)
+        log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+        fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+        fit<-lmer(y ~ treatment + (1|cell), data = df,REML=FALSE)
+        anovaFit<-anova(fit.null,fit)
+        return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+    }))
+
+    STDPTreVsDMEMUntreLMME<-as.data.frame(STDPTreVsDMEMUntreLMME)
+    colnames(STDPTreVsDMEMUntreLMME)<-c("myp","eta_sq","log2fc")
+    STDPTreVsDMEMUntreLMMEAdj<-STDPTreVsDMEMUntreLMME$mypadj<-p.adjust(STDPTreVsDMEMUntreLMME$myp,method="fdr")
+    STDPTreVsDMEMUntreLMME$name<-rownames(STDPTreVsDMEMUntreLMME)
+    write.csv(STDPTreVsDMEMUntreLMME,file="~/Desktop/LMME_lipidomic_results.csv")
+}
+hist(STDPTreVsDMEMUntreLMMEAdj,breaks=100)
+
+```
+
+#### MDM2 High vs Low
+```{r}
+Untreated_DMEM_indices <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none") %>%
+    select(Run_Order)
+
+
+LM_area_DMEM_untreated <- LM_area %>%
+    select(as.vector(t(Untreated_DMEM_indices)))
+
+cell <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none") %>%
+    select(Cell_line)
+
+mdm2_status <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="none") %>%
+    select(MDM2_status)
+
+if(!exists("MDM2HivsLoLMME")){
+    MDM2HivsLoLMME<-t(pbapply(LM_area_DMEM_untreated, 1, function(x){
+        df<-data.frame(y=x,cell=unlist(cell),mdm2_status=unlist(mdm2_status))
+        colnames(df)[1]="y"
+        high<-df %>%
+            filter(mdm2_status=="high") %>%
+            select(y)
+        low<-df %>%
+            filter(mdm2_status=="low") %>%
+            select(y)
+        log2fc<-mean(as.matrix(high))-mean(as.matrix(low))
+        fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+        fit<-lmer(y ~ mdm2_status + (1|cell), data = df,REML=FALSE)
+        anovaFit<-anova(fit.null,fit)
+        return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+    }))
+
+    MDM2HivsLoLMME<-as.data.frame(MDM2HivsLoLMME)
+    colnames(MDM2HivsLoLMME)<-c("myp","eta_sq","log2fc")
+    MDM2HivsLoLMMEAdj<-MDM2HivsLoLMME$mypadj<-p.adjust(MDM2HivsLoLMME$myp,method="fdr")
+    MDM2HivsLoLMME$name<-rownames(MDM2HivsLoLMME)
+    write.csv(MDM2HivsLoLMME,"~/Desktop/Liposarcoma project/final_lipidomic_analysis/MDM2HivsLo_lipidomic.csv")
+}
+hist(MDM2HivsLoLMMEAdj,breaks=100)
+
+```
+
+```{r, Treated MDM2 high vs low}
+Treated_DMEM_indices <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="Atorvastatin") %>%
+    select(Run_Order)
+
+
+LM_area_DMEM_treated <- LM_area %>%
+    select(as.vector(t(Treated_DMEM_indices)))
+
+cell <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="Atorvastatin") %>%
+    select(Cell_line)
+
+mdm2_status <-
+    paired_key %>%
+    filter(Medium=="DMEM" & Treatment_Status=="Atorvastatin") %>%
+    select(MDM2_status)
+
+if(!exists("MDM2HivsLoTreatedLMME")){
+    MDM2HivsLoTreatedLMME<-t(pbapply(LM_area_DMEM_treated, 1, function(x){
+        df<-data.frame(y=x,cell=unlist(cell),mdm2_status=unlist(mdm2_status))
+        colnames(df)[1]="y"
+        high<-df %>%
+            filter(mdm2_status=="high") %>%
+            select(y)
+        low<-df %>%
+            filter(mdm2_status=="low") %>%
+            select(y)
+        log2fc<-mean(as.matrix(high))-mean(as.matrix(low))
+        fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+        fit<-lmer(y ~ mdm2_status + (1|cell), data = df,REML=FALSE)
+        anovaFit<-anova(fit.null,fit)
+        return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+    }))
+
+    MDM2HivsLoTreatedLMME<-as.data.frame(MDM2HivsLoTreatedLMME)
+    colnames(MDM2HivsLoTreatedLMME)<-c("myp","eta_sq","log2fc")
+    MDM2HivsLoTreatedLMMEAdj<-MDM2HivsLoTreatedLMME$mypadj<-p.adjust(MDM2HivsLoTreatedLMME$myp,method="fdr")
+    MDM2HivsLoTreatedLMME$name<-rownames(MDM2HivsLoTreatedLMME)
+}
+```
+
+```{r, Plot ceramide shift}
+MDM2HivsLoLMME$class<-as.vector(lipidomic_key$LM.Main.Class)
+palette_names<-as.vector(sort(unique(MDM2HivsLoLMME$class)))
+palette<-c(brewer.pal(12,"Paired"),"#40E0D0","violet","grey80")
+names(palette)<-c(palette_names,"Not Significant")
+palette<-palette[unique(MDM2HivsLoLMME$class)]
+
+MDM2HivsLoLMME %>%
+    filter(class == "Ceramides" | class == "Neutral glycosphingolipids") %>%
+    ggplot(aes(y=log2fc,x=reorder(name,log2fc),fill=class)) +
+    labs(y = "log2(MDM2 High - MDM2 Low)",
+          x = "Lipid") +
+    geom_bar(stat="identity",color="black") +
+    coord_flip() +
+    scale_fill_manual(values = palette,
+                       ##labels=legend_labels,
+                       name="LipidMaps Main Class") +
+    ggtitle("Ceramides and Glycosylated Ceramides Altered by MDM2 Status")
+```
+
+#### Upsetr
+```{r}
+   log2fc_threshold=fc_thresh
+   ##lipidomic_key <- lipidomic_key[match(rownames(LM_area),lipidomic_key$name),]
+
+   TreVsUntreLMME$class<-DMEMVsSTDPLMME$class<-STDPTreVsDMEMUntreLMME$class<-as.vector(lipidomic_key$LM.Main.Class)
+
+   TreVsUntreLMMESig <-
+       TreVsUntreLMME %>%
+       filter(mypadj < p_thresh) %>%
+       filter(abs(log2fc) >= fc_thresh)
+
+   DMEMVsSTDPLMMESig <-
+       DMEMVsSTDPLMME %>%
+       filter(mypadj < p_thresh) %>%
+       filter(abs(log2fc) >= fc_thresh)
+
+   STDPTreVsDMEMUntreLMMESig <-
+       STDPTreVsDMEMUntreLMME %>%
+       filter(mypadj < p_thresh) %>%
+       filter(abs(log2fc) >= fc_thresh)
+
+   listInput <- list(Treated_vs_untreated = TreVsUntreLMMESig$name,
+                     STDP_vs_DMEM = DMEMVsSTDPLMMESig$name,
+                     Treated_STDP_vs_DMEM_untreated = STDPTreVsDMEMUntreLMMESig$name)
+   names(listInput) <- c("Atorvastatin vs Control",
+                         "STDP vs Control",
+                         "Atorvatstatin + STDP vs Control")
+   pdf("Treatment_Medium_Upsetr.pdf",width=12,height = 8)
+   upset(fromList(listInput),order.by="freq",text.scale=2)
+   dev.off()
+   upset(fromList(listInput),order.by="freq",text.scale=2)
+
+```
+
+#### Lipid list
+```{r}
+    
+lipids <- full_join(TreVsUntreLMME,
+                    DMEMVsSTDPLMME,
+                    by="name")
+
+lipids <- full_join(lipids,
+                    STDPTreVsDMEMUntreLMME,
+                    by="name")
+
+lipids <-
+    lipids %>%
+    mutate(class=coalesce(class,class.x)) %>%
+    mutate(class=coalesce(class,class.y)) %>%
+    select(name,class,
+           log2fc.x,mypadj.x,
+           log2fc.y,mypadj.y,
+           log2fc,mypadj) %>%
+    column_to_rownames("name")
+
+colnames(lipids) <- c("class",
+                      "Post-treatment log2fc","Post-treatment.pval",
+                      "Post-STDP log2fc","Post-STDP.pval",
+                      "Post-combo log2fc","Post-combo.pval")
+##significant_lipids$no.tests <- apply(significant_lipids,1,
+##                                    function(x){return(3-length(which(is.na(x))))})
+
+significance_matrix <- apply(lipids[,2:7],1,function(x){
+    output<-c()
+    if(abs(x[1]) > fc_thresh & x[2] < p_thresh){
+        output<-"Yes"
+    }else{
+        output<-"No"
+    }
+    if(abs(x[3]) > fc_thresh & x[4] < p_thresh){
+        output<-c(output,"Yes")
+    }else{
+        output<-c(output,"No")
+    }
+    if(abs(x[5]) > fc_thresh & x[6] < p_thresh){
+        output<-c(output,"Yes")
+    }else{
+        output<-c(output,"No")
+    }
+})
+lipids<-cbind(lipids,t(significance_matrix))
+colnames(lipids)<-c("class",
+                    "Post-treatment log2fc","Post-treatment.pval",
+                    "Post-STDP log2fc","Post-STDP.pval",
+                    "Post-combo log2fc","Post-combo.pval","Altered by Treatment?","Altered by sterol deprivation?","Altered by combination?")
+write.csv(lipids,"~/Desktop/Liposarcoma project/final_lipidomic_analysis/lipidomic_LMME_results.csv")    
+```
+
+#### Lipid list (significant lipids only)
+
+```{r}
+
+significant_lipids <- full_join(TreVsUntreLMMESig,
+                                DMEMVsSTDPLMMESig,
+                                by="name")
+
+significant_lipids <- full_join(significant_lipids,
+                                STDPTreVsDMEMUntreLMMESig,
+                                by="name")
+
+significant_lipids <-
+    significant_lipids %>%
+    mutate(class=coalesce(class,class.x)) %>%
+    mutate(class=coalesce(class,class.y)) %>%
+    select(name,class,
+           log2fc.x,#mypadj.x,
+           log2fc.y,#mypadj.y,
+           log2fc) %>% #mypadj) %>%
+    column_to_rownames("name")
+
+colnames(significant_lipids) <- c("class",
+                                  "Post-treatment",#"Post-treatment.pval",
+                                  "Post-STDP",#"Post-STDP.pval",
+                                  "Post-combo")#"Post-combo.pval")
+##significant_lipids$no.tests <- apply(significant_lipids,1,
+##                                    function(x){return(3-length(which(is.na(x))))})
+
+significant_lipids$altered.by <- apply(significant_lipids[,2:4],1,function(x){
+    is.significant <- as.numeric(which(!is.na(x)))
+    if(length(is.significant)==3){
+        return("All")
+    }else if(length(is.significant)==2){
+        if(identical(is.significant,c(1,2))){
+            return("Atorvastatin and Sterol deprivation but not Combination")
+        }else if(identical(is.significant,c(1,3))){
+            return("Atorvastatin and Combination but not Sterol deprivation alone")
+        }else if(identical(is.significant,c(2,3))){
+            return("Sterol deprivation and Combination but not Atorvastatin alone")
+        }
+    }else if(is.significant==1){
+        return("Atorvastatin treatment only")
+    }else if(is.significant==2){
+        return("Sterol deprivation only")
+    }else if(is.significant==3){
+        return("Combination treatment only")
+    }
+})
+write.csv(significant_lipids,"lipidomic_LMME_results_significant.csv")    
+```
+
+### Volcano plots
+
+##### Function
+
+```{r}
+volcano_plotter <- function(df,title){
+    T_test_results<-df
+    
+    ## Make insignificant points smaller and more transparent
+    T_test_results$significant = abs(T_test_results$log2fc) > fc_thresh &
+        -log10(T_test_results$mypadj) > -log10(p_thresh)
+    T_test_results$size <- ifelse(T_test_results$significant,4,2)
+    
+    ## Color code by lipid class
+    T_test_results$MainClass<-lipidomic_key$LM.Main.Class[match(T_test_results$name,lipidomic_key$name)]
+    palette_names<-as.vector(sort(unique(T_test_results$MainClass)))
+    T_test_results$MainClass<-sapply(1:nrow(T_test_results),function(x){
+        ifelse(T_test_results$significant[x],
+                    return(as.vector(T_test_results$MainClass)[x]),return("Not Significant"))
+    })
+      
+	 legend_labels<-sort(unique(sapply(T_test_results$MainClass, function(x){
+             if(!is.na(x)){
+		 return(paste0(x," (n=",length(which(T_test_results$MainClass==x)),")"))
+             }else{
+		 return(x)
+             }
+	 })))
+      
+	 ##legend_labels<-legend_labels[-which(is.na(legend_labels))]
+      
+	 palette<-c(brewer.pal(12,"Paired"),"#40E0D0","violet","grey80")
+	 names(palette)<-c(palette_names,"Not Significant")
+	 palette<-palette[unique(T_test_results$MainClass)]
+                                           #palette<-palette[-which(is.na(palette))]
+      
+    if(any(T_test_results$significant)){
+        g = ggplot(data=T_test_results, aes(x=log2fc, y=-log10(mypadj), colour=MainClass)) +
+            geom_point(##alpha=0.7,
+                       aes(size=size, text=name)) +
+            scale_color_manual(values = palette,
+                                        #na.value="grey80",
+                               labels=legend_labels,
+                               name="LipidMaps Main Class") +
+            theme_bw(base_size=20) +
+                                        #scale_color_brewer(palette="Paired",na.value="grey80") +
+            ggtitle(title) +
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+            ylab("-log10 p-value") +
+            geom_hline(yintercept = -log10(p_thresh),lty = 2) +
+            geom_vline(xintercept = fc_thresh, lty = 2) +
+            geom_vline(xintercept = -fc_thresh, lty = 2) +
+            scale_size(range=c(2,4)) +
+            guides(size=FALSE,colour = guide_legend(override.aes = list(size=10)))
+    }else{
+        g = ggplot(data=T_test_results, aes(x=log2fc, y=-log10(mypadj))) +
+            geom_point(
+                ##alpha=0.4,
+                aes(text=name)) +
+            scale_color_manual(values = palette) +#,na.value="grey80") +
+            theme_bw(base_size=24) +
+                                        #scale_color_brewer(palette="Paired",na.value="grey80") +
+            ggtitle(title) +
+            theme(plot.title = element_text(hjust = 0.5)) +
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+            ylab("-log10 p-value") +
+            geom_hline(yintercept = -log10(p_thresh),lty = 2) +
+            geom_vline(xintercept = fc_thresh, lty = 2) +
+            geom_vline(xintercept = -fc_thresh, lty = 2)
+        return(g)
+    }
+    
+    T_test_results_sig<-T_test_results[T_test_results$significant,]
+    text_size<-round(min(20,350/nrow(T_test_results_sig)),digits=0)
+    
+    barplot<-ggplot(T_test_results_sig, aes(x=reorder(name,log2fc), y=log2fc ))+
+        theme_bw() +
+        geom_bar(stat="identity",colour="black",aes(fill = MainClass)) +
+        scale_fill_manual(values = palette) +
+        coord_flip() +
+        ylab("eta squared") +
+        theme(axis.title.y = element_blank(),axis.title.x = element_text(size=12,face="bold"),axis.text.y=element_text(size=text_size),axis.text.x=element_text(size=10)) +
+        theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+    
+    return(list(g,barplot))
+}
+```
+##### Plots
+```{r, fig.height=6}
+ggplotly(volcano_plotter(TreVsUntreLMME,"Atorvastatin vs Control")[[1]] + xlim(-3.2,3) + ylim(0,17))
+ggplotly(volcano_plotter(DMEMVsSTDPLMME,"STDP vs Control")[[1]]+ xlim(-3.2,3) + ylim(0,17))
+ggplotly(volcano_plotter(STDPTreVsDMEMUntreLMME, "Atorvatstatin + STDP vs Control")[[1]] + xlim(-3.2,3) + ylim(0,17))
+ggplotly(volcano_plotter(MDM2HivsLoLMME,"MDM2 High vs Low")[[1]] + xlim(-3.2,3) + ylim(0,17))
+
+saveRDS(MDM2HivsLoLMME,"~/Documents/andyptt21.github.io/Thesis_presentation_2_5/img/Lipid_volcano_plot.Rds")
+
+volcano_plotter(TreVsUntreLMME,"Atorvastatin vs Control")[[1]] + labs(x="log2(Atorvastatin)-log2(Untreated)")
+volcano_plotter(DMEMVsSTDPLMME,"STDP vs Control")[[1]]+ xlim(-3.2,3) + ylim(0,17)
+volcano_plotter(STDPTreVsDMEMUntreLMME, "Atorvatstatin + STDP vs Control")[[1]] + xlim(-3.2,3) + ylim(0,17)
+volcano_plotter(MDM2HivsLoLMME,"MDM2 High vs Low")[[1]] + xlim(-3.2,3)
+volcano_plotter(MDM2HivsLoTreatedLMME, "Treated Cells MDM2 High vs Low")[[1]] + xlim(-3.2,3)
+
+
+MDM2HivsLoLMME %>%
+    filter(abs(log2fc) > fc_thresh & mypadj < p_thresh) %>%
+    ggplot(aes(x=reorder(name,log2fc), y=log2fc ))+
+    theme_bw() +
+    geom_bar(stat="identity",colour="black",aes(fill = class)) +
+    scale_fill_manual(values = palette) +
+    coord_flip() +
+    ylab("log2(mean(MDM2 High) - mean(MDM2 Low))") +
+    theme(axis.title.y = element_blank(),axis.title.x = element_text(size=12),axis.text.y=element_text(size=20,face="bold"),axis.text.x=element_text(size=10, face="bold")) +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    ggtitle("MDM2 High vs Low cells (Lipidomic Panel)")
+
+```
+
+#### Class differences by treatment status
+```{r}
+library(reshape)
+altered <- data.frame(altered=
+                          table(TreVsUntreLMMESig$class)/nrow(TreVsUntreLMMESig))
+
+background <- data.frame(background=
+                             table(lipidomic_key$LM.Main.Class)/nrow(lipidomic_key))
+colnames(altered)<-c("class","Significant")
+colnames(background)<-c("class","Background")
+plot.df<-left_join(background,altered)
+plot.df <- plot.df %>%
+    gather(backgroundfreq,alteredfreq,-class)
+colnames(plot.df)<-c("class","test","freq")
+
+ggplot(plot.df,aes(x=class,y=freq,fill=test)) +
+    geom_bar(stat="identity",position="dodge") +
+    theme_classic() +
+    scale_color_manual(values = c("blue","red")) +
+    theme(axis.text.x = element_text(angle=45,hjust=1)) +
+    ggtitle("Lipidomic differences based on atorvastatin treatment (LMME)")
+
+```
+
+#### Class differences by medium
+```{r}
+   altered <- data.frame(altered=
+                             table(DMEMVsSTDPLMMESig$class)/nrow(DMEMVsSTDPLMMESig))
+
+   colnames(altered)<-c("class","Significant")
+
+   plot.df<-left_join(background,altered)
+   plot.df <- plot.df %>%
+       gather(backgroundfreq,alteredfreq,-class)
+   colnames(plot.df)<-c("class","test","freq")
+
+   ggplot(plot.df,aes(x=class,y=freq,fill=test)) +
+       geom_bar(stat="identity",position="dodge") +
+       scale_color_manual(values = c("blue","red")) +
+       theme_classic() +
+       theme(axis.text.x = element_text(angle=45,hjust=1)) +
+       ggtitle("Lipidomic differences based on cell media (LMME)")
+
+```
+
+## MDM2 high cell lines only {.tabset}
+### Linear Mixed effect models
+#### Treated vs. Untreated
+```{r}
+   Treated_untreated_indices <-
+       paired_key %>%
+       filter(Medium=="DMEM" & MDM2_status=="high") %>%
+       select(Run_Order)
+
+   LM_area_DMEM <- LM_area %>%
+       select(as.vector(t(Treated_untreated_indices)))
+
+   cell <-
+       paired_key %>%
+       filter(Medium=="DMEM" & MDM2_status=="high") %>%
+       select(Cell_line)
+
+   treatment <-
+       paired_key %>%
+       filter(Medium=="DMEM" & MDM2_status=="high") %>%
+       select(Treatment_Status)
+
+
+   ## return eta_sq(fit)
+   if(!exists("TreVsUntreLMME_high")){
+   TreVsUntreLMME_high<-t(pbapply(LM_area_DMEM, 1, function(x){
+       df<-data.frame(y=x,cell=unlist(cell),treatment=unlist(treatment))
+       colnames(df)[1]="y"
+       treated<-df %>%
+           filter(treatment=="Atorvastatin") %>%
+           select(y)
+       untreated<-df %>%
+           filter(treatment=="none") %>%
+           select(y)
+       log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+       fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+       fit<-lmer(y ~ treatment + (1|cell), data = df,REML=FALSE)
+       anovaFit<-anova(fit.null,fit)
+       return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+   }))
+
+   TreVsUntreLMME_high<-as.data.frame(TreVsUntreLMME_high)
+   colnames(TreVsUntreLMME_high)<-c("myp","eta_sq","log2fc")
+   TreVsUntreLMMEAdj_high<-TreVsUntreLMME_high$mypadj<-p.adjust(TreVsUntreLMME_high$myp,method="fdr")
+   TreVsUntreLMME_high$name<-rownames(TreVsUntreLMME_high)
+   }
+   hist(TreVsUntreLMMEAdj_high,breaks=100)
+   write.csv(TreVsUntreLMME_high,file="~/Desktop/LMME_lipidomic_results.csv")
+   
+
+```
+
+
+#### Dmem vs STDP
+
+```{r}
+   DMEM_STDP_indices <-
+       paired_key %>%
+       filter(Treatment_Status=="none" & MDM2_status=="high") %>%
+       select(Run_Order)
+
+   LM_area_untreated <- LM_area %>%
+       select(as.vector(t(DMEM_STDP_indices)))
+
+   cell <-
+       paired_key %>%
+       filter(Treatment_Status=="none" & MDM2_status=="high") %>%
+       select(Cell_line)
+
+   medium <-
+       paired_key %>%
+       filter(Treatment_Status=="none" & MDM2_status=="high") %>%
+       select(Medium)
+
+   ## return eta_sq(fit)
+   if(!exists("DMEMVsSTDPLMME_high")){
+   DMEMVsSTDPLMME_high<-t(pbapply(LM_area_untreated, 1, function(x){
+       df<-data.frame(y=x,cell=unlist(cell),medium=unlist(medium))
+       colnames(df)[1]="y"
+           treated<-df %>%
+           filter(medium=="STDP") %>%
+           select(y)
+       untreated<-df %>%
+           filter(medium=="DMEM") %>%
+           select(y)
+       log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+       fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+       fit<-lmer(y ~ medium + (1|cell), data = df,REML=FALSE)
+       anovaFit<-anova(fit.null,fit)
+       return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+   }))
+
+   DMEMVsSTDPLMME_high<-as.data.frame(DMEMVsSTDPLMME_high)
+   colnames(DMEMVsSTDPLMME_high)<-c("myp","eta_sq","log2fc")
+   DMEMVsSTDPLMMEAdj_high<-DMEMVsSTDPLMME_high$mypadj<-p.adjust(DMEMVsSTDPLMME_high$myp,method="fdr")
+   DMEMVsSTDPLMME_high$name<-rownames(DMEMVsSTDPLMME_high)
+   }
+   hist(DMEMVsSTDPLMMEAdj_high,breaks=100)
+   write.csv(DMEMVsSTDPLMME,file="~/Desktop/LMME_lipidomic_results.csv")
+
+   ```
+
+#### STDP treated vs DMEM untreated
+
+```{r}
+   Treated_STDP_indices <-
+       paired_key %>%
+       filter(Medium=="DMEM" & Treatment_Status=="none" & MDM2_status=="high" |
+              Medium=="STDP" & Treatment_Status=="Atorvastatin" & MDM2_status=="high") %>%
+       select(Run_Order)
+
+
+   LM_area_double <- LM_area %>%
+       select(as.vector(t(Treated_STDP_indices)))
+
+   cell <-
+       paired_key %>%
+       filter(Medium=="DMEM" & Treatment_Status=="none" & MDM2_status=="high" |
+              Medium=="STDP" & Treatment_Status=="Atorvastatin" & MDM2_status=="high") %>%
+       select(Cell_line)
+
+   treatment <-
+       paired_key %>%
+       filter(Medium=="DMEM" & Treatment_Status=="none" & MDM2_status=="high" |
+              Medium=="STDP" & Treatment_Status=="Atorvastatin" & MDM2_status=="high") %>%
+       select(Treatment_Status)
+if(!exists("STDPTreVsDMEMUntreLMME_high")){
+   STDPTreVsDMEMUntreLMME_high<-t(pbapply(LM_area_double, 1, function(x){
+       df<-data.frame(y=x,cell=unlist(cell),treatment=unlist(treatment))
+       colnames(df)[1]="y"
+       treated<-df %>%
+           filter(treatment=="Atorvastatin") %>%
+           select(y)
+       untreated<-df %>%
+           filter(treatment=="none") %>%
+           select(y)
+       log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+       fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+       fit<-lmer(y ~ treatment + (1|cell), data = df,REML=FALSE)
+       anovaFit<-anova(fit.null,fit)
+       return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+   }))
+
+   STDPTreVsDMEMUntreLMME_high<-as.data.frame(STDPTreVsDMEMUntreLMME_high)
+   colnames(STDPTreVsDMEMUntreLMME_high)<-c("myp","eta_sq","log2fc")
+   STDPTreVsDMEMUntreLMMEAdj_high<-STDPTreVsDMEMUntreLMME_high$mypadj<-p.adjust(STDPTreVsDMEMUntreLMME_high$myp,method="fdr")
+   STDPTreVsDMEMUntreLMME_high$name<-rownames(STDPTreVsDMEMUntreLMME_high)
+   }
+   hist(STDPTreVsDMEMUntreLMMEAdj_high,breaks=100)
+   write.csv(STDPTreVsDMEMUntreLMME_high,file="~/Desktop/LMME_lipidomic_results.csv")
+
+```
+
+### Visualizations and functional analyses
+#### Upsetr
+```{r}
+   log2fc_threshold=fc_thresh
+   lipidomic_key <- lipidomic_key[match(rownames(LM_area),lipidomic_key$name),]
+
+   TreVsUntreLMME_high$class<-DMEMVsSTDPLMME_high$class<-STDPTreVsDMEMUntreLMME_high$class<-as.vector(lipidomic_key$LM.Main.Class)
+   saveRDS(TreVsUntreLMME_high,"~/Documents/andyptt21.github.io/Thesis_presentation_2_5/img/Lipid_Hi_Tre_volcano_plot.Rds")
+   TreVsUntreLMMESig_high <-
+       TreVsUntreLMME_high %>%
+       filter(mypadj < p_thresh) %>%
+       filter(abs(log2fc) >= fc_thresh)
+   TreVsUntreLMMESig_MDM2High <- TreVsUntreLMMESig_high
+   
+   DMEMVsSTDPLMMESig_high <-
+       DMEMVsSTDPLMME_high %>%
+       filter(mypadj < p_thresh) %>%
+       filter(abs(log2fc) >= fc_thresh)
+   DMEMVsSTDPLMMESig_MDM2High <- DMEMVsSTDPLMMESig_high
+   
+   STDPTreVsDMEMUntreLMMESig_high <-
+       STDPTreVsDMEMUntreLMME_high %>%
+       filter(mypadj < p_thresh) %>%
+       filter(abs(log2fc) >= fc_thresh)
+   STDPTreVsDMEMUntreLMMESig_MDM2High <- STDPTreVsDMEMUntreLMMESig_high
+
+   listInput <- list(Treated_vs_untreated = TreVsUntreLMMESig_high$name,
+                     STDP_vs_DMEM = DMEMVsSTDPLMMESig_high$name,
+                     Treated_STDP_vs_DMEM_untreated = STDPTreVsDMEMUntreLMMESig_high$name)
+   names(listInput) <- c("Atorvastatin vs Control",
+                         "STDP vs Control",
+                         "Atorvatstatin + STDP vs Control")
+   pdf("Treatment_Medium_Upsetr_MDM2high.pdf",width=12,height = 8)
+   upset(fromList(listInput),order.by="freq",text.scale=2)
+   dev.off()
+
+   upset(fromList(listInput),order.by="freq",text.scale=2)
+```
+
+
+```{r, Plot ceramide shift High}
+palette_names<-as.vector(sort(unique(TreVsUntreLMME_high$class)))
+palette<-c(brewer.pal(12,"Paired"),"#40E0D0","violet","grey80")
+names(palette)<-c(palette_names,"Not Significant")
+palette<-palette[unique(TreVsUntreLMME_high$class)]
+
+TreVsUntreLMME_high %>%
+    filter(class == "Ceramides" | class == "Neutral glycosphingolipids") %>%
+    ggplot(aes(y=log2fc,x=reorder(name,log2fc),fill=class)) +
+    labs(y = "log2(Treated-Untreated)",
+          x = "Lipid") +
+    geom_bar(stat="identity",color="black") +
+    coord_flip() +
+    scale_fill_manual(values = palette,
+                       ##labels=legend_labels,
+                       name="LipidMaps Main Class") +
+    ggtitle("Ceramides and Glycosylated Ceramides Altered by Atorvatstatin Treatment, (MDM2 High Only)")
+```
+
+#### Lipid list
+```{r}
+    
+     significant_lipids <- full_join(TreVsUntreLMMESig_high,
+                                     DMEMVsSTDPLMMESig_high,
+                                     by="name")
+  
+     significant_lipids <- full_join(significant_lipids,
+                                     STDPTreVsDMEMUntreLMMESig_high,
+                                     by="name")
+
+     significant_lipids <-
+	 significant_lipids %>%
+	 mutate(class=coalesce(class,class.x)) %>%
+	 mutate(class=coalesce(class,class.y)) %>%
+	 select(name,class,
+		log2fc.x,#mypadj.x,
+		log2fc.y,#mypadj.y,
+		log2fc,) %>% #mypadj) %>%
+	 column_to_rownames("name")
+
+     colnames(significant_lipids) <- c("class",
+                                       "Post-treatment",#"Post-treatment.pval",
+                                       "Post-STDP",#"Post-STDP.pval",
+                                       "Post-combo")#"Post-combo.pval")
+     ##significant_lipids$no.tests <- apply(significant_lipids,1,
+     ##                                    function(x){return(3-length(which(is.na(x))))})
+
+     significant_lipids$altered.by <- apply(significant_lipids[,2:4],1,function(x){
+	 is.significant <- as.numeric(which(!is.na(x)))
+	 if(length(is.significant)==3){
+             return("All")
+	 }else if(length(is.significant)==2){
+             if(identical(is.significant,c(1,2))){
+		 return("Atorvastatin and Sterol deprivation but not Combination")
+             }else if(identical(is.significant,c(1,3))){
+		 return("Atorvastatin and Combination but not Sterol deprivation alone")
+             }else if(identical(is.significant,c(2,3))){
+		 return("Sterol deprivation and Combination but not Atorvastatin alone")
+             }
+	 }else if(is.significant==1){
+             return("Atorvastatin treatment only")
+	 }else if(is.significant==2){
+             return("Sterol deprivation only")
+	 }else if(is.significant==3){
+             return("Combination treatment only")
+	 }
+     })
+     write.csv(significant_lipids,"lipidomic_LMME_results_MDM2high.csv")    
+```
+
+#### Volcano plots
+
+##### Plots
+
+```{r, fig.height=6}
+
+ggplotly(volcano_plotter(TreVsUntreLMME_high,"Atorvastatin vs Control, MDM2 high only")[[1]] + xlim(-3.55,3) + ylim(0,10))
+ggplotly(volcano_plotter(DMEMVsSTDPLMME_high,"STDP vs Control, MDM2 high only")[[1]]+ xlim(-3.55,3) + ylim(0,10))
+ggplotly(volcano_plotter(STDPTreVsDMEMUntreLMME_high, "Atorvatstatin + STDP vs Control, MDM2 high only")[[1]]+ xlim(-3.55,3) + ylim(0,10))
+
+fig3d<-volcano_plotter(TreVsUntreLMME_high,"Atorvastatin vs Control, MDM2 higher only")[[1]] + xlim(-3.55,3) + ylim(0,10) + labs(x="log2(Atorvastatin)-log2(Untreated)")
+volcano_plotter(DMEMVsSTDPLMME_high,"STDP vs Control, MDM2 high only")[[1]]+ xlim(-3.55,3) + ylim(0,10)
+volcano_plotter(STDPTreVsDMEMUntreLMME_high, "Atorvatstatin + STDP vs Control, MDM2 high only")[[1]]+ xlim(-3.55,3) + ylim(0,10)
+
+```
+
+## MDM2 low cell lines only {.tabset}
+### Linear Mixed effect models
+#### Treated vs. Untreated
+```{r}
+Treated_untreated_indices <-
+       paired_key %>%
+       filter(Medium=="DMEM" & MDM2_status=="low") %>%
+       select(Run_Order)
+
+   LM_area_DMEM <- LM_area %>%
+       select(as.vector(t(Treated_untreated_indices)))
+
+   cell <-
+       paired_key %>%
+       filter(Medium=="DMEM" & MDM2_status=="low") %>%
+       select(Cell_line)
+
+   treatment <-
+       paired_key %>%
+       filter(Medium=="DMEM" & MDM2_status=="low") %>%
+       select(Treatment_Status)
+
+
+## return eta_sq(fit)
+if(!exists("TreVsUntreLMME_low")){
+   TreVsUntreLMME_low<-t(pbapply(LM_area_DMEM, 1, function(x){
+       df<-data.frame(y=x,cell=unlist(cell),treatment=unlist(treatment))
+       colnames(df)[1]="y"
+       treated<-df %>%
+           filter(treatment=="Atorvastatin") %>%
+           select(y)
+       untreated<-df %>%
+           filter(treatment=="none") %>%
+           select(y)
+       log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+       fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+       fit<-lmer(y ~ treatment + (1|cell), data = df,REML=FALSE)
+       anovaFit<-anova(fit.null,fit)
+       return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+   }))
+
+
+   TreVsUntreLMME_low<-as.data.frame(TreVsUntreLMME_low)
+   colnames(TreVsUntreLMME_low)<-c("myp","eta_sq","log2fc")
+   TreVsUntreLMME_lowAdj<-TreVsUntreLMME_low$mypadj<-p.adjust(TreVsUntreLMME_low$myp,method="fdr")
+   TreVsUntreLMME_low$name<-rownames(TreVsUntreLMME_low)
+   write.csv(TreVsUntreLMME_low,file="~/Desktop/LMME_lipidomic_results.csv")
+   }
+
+   hist(TreVsUntreLMME_lowAdj,breaks=100)
+
+saveRDS(TreVsUntreLMME,"~/Documents/andyptt21.github.io/Thesis_presentation_2_5/img/Lipid_Lo_Tre_volcano_plot.Rds")
+```
+
+#### DMEM vs STDP
+```{r}
+   DMEM_STDP_indices <-
+       paired_key %>%
+       filter(Treatment_Status=="none" & MDM2_status=="low") %>%
+       select(Run_Order)
+
+   LM_area_untreated <- LM_area %>%
+       select(as.vector(t(DMEM_STDP_indices)))
+
+   cell <-
+       paired_key %>%
+       filter(Treatment_Status=="none" & MDM2_status=="low") %>%
+       select(Cell_line)
+
+   medium <-
+       paired_key %>%
+       filter(Treatment_Status=="none" & MDM2_status=="low") %>%
+       select(Medium)
+
+   ## return eta_sq(fit)
+   if(!exists("DMEMVsSTDPLMME_low")){
+   DMEMVsSTDPLMME_low<-t(pbapply(LM_area_untreated, 1, function(x){
+       df<-data.frame(y=x,cell=unlist(cell),medium=unlist(medium))
+       colnames(df)[1]="y"
+           treated<-df %>%
+           filter(medium=="STDP") %>%
+           select(y)
+       untreated<-df %>%
+           filter(medium=="DMEM") %>%
+           select(y)
+       log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+       fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+       fit<-lmer(y ~ medium + (1|cell), data = df,REML=FALSE)
+       anovaFit<-anova(fit.null,fit)
+       return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+   }))
+
+   DMEMVsSTDPLMME_low<-as.data.frame(DMEMVsSTDPLMME_low)
+   colnames(DMEMVsSTDPLMME_low)<-c("myp","eta_sq","log2fc")
+   DMEMVsSTDPLMME_lowAdj<-DMEMVsSTDPLMME_low$mypadj<-p.adjust(DMEMVsSTDPLMME_low$myp,method="fdr")
+   DMEMVsSTDPLMME_low$name<-rownames(DMEMVsSTDPLMME_low)
+   }
+   hist(DMEMVsSTDPLMME_lowAdj,breaks=100)
+   write.csv(DMEMVsSTDPLMME_low,file="~/Desktop/LMME_lipidomic_results.csv")
+
+```
+
+#### STDP treated vs DMEM untreated
+```{r}
+   Treated_STDP_indices <-
+       paired_key %>%
+       filter(Medium=="DMEM" & Treatment_Status=="none" & MDM2_status=="low" |
+              Medium=="STDP" & Treatment_Status=="Atorvastatin" & MDM2_status=="low") %>%
+       select(Run_Order)
+
+
+   LM_area_double <- LM_area %>%
+       select(as.vector(t(Treated_STDP_indices)))
+
+   cell <-
+       paired_key %>%
+       filter(Medium=="DMEM" & Treatment_Status=="none" & MDM2_status=="low" |
+              Medium=="STDP" & Treatment_Status=="Atorvastatin" & MDM2_status=="low") %>%
+       select(Cell_line)
+
+   treatment <-
+       paired_key %>%
+       filter(Medium=="DMEM" & Treatment_Status=="none" & MDM2_status=="low" |
+              Medium=="STDP" & Treatment_Status=="Atorvastatin" & MDM2_status=="low") %>%
+       select(Treatment_Status)
+if(!exists("STDPTreVsDMEMUntreLMME_low")){
+   STDPTreVsDMEMUntreLMME_low<-t(pbapply(LM_area_double, 1, function(x){
+       df<-data.frame(y=x,cell=unlist(cell),treatment=unlist(treatment))
+       colnames(df)[1]="y"
+       treated<-df %>%
+           filter(treatment=="Atorvastatin") %>%
+           select(y)
+       untreated<-df %>%
+           filter(treatment=="none") %>%
+           select(y)
+       log2fc<-mean(as.matrix(treated))-mean(as.matrix(untreated))
+       fit.null<-lmer(y ~ (1|cell), data = df,REML=FALSE)
+       fit<-lmer(y ~ treatment + (1|cell), data = df,REML=FALSE)
+       anovaFit<-anova(fit.null,fit)
+       return(c(anovaFit$'Pr(>Chisq)'[2],as.numeric(eta_sq(fit))[2],log2fc))
+   }))
+
+   STDPTreVsDMEMUntreLMME_low<-as.data.frame(STDPTreVsDMEMUntreLMME_low)
+   colnames(STDPTreVsDMEMUntreLMME_low)<-c("myp","eta_sq","log2fc")
+   STDPTreVsDMEMUntreLMME_lowAdj<-STDPTreVsDMEMUntreLMME_low$mypadj<-p.adjust(STDPTreVsDMEMUntreLMME_low$myp,method="fdr")
+   STDPTreVsDMEMUntreLMME_low$name<-rownames(STDPTreVsDMEMUntreLMME_low)
+   }
+   hist(STDPTreVsDMEMUntreLMME_lowAdj,breaks=100)
+   write.csv(STDPTreVsDMEMUntreLMME_low,file="~/Desktop/LMME_lipidomic_results.csv")
+
+```
+### Visualizations and functional analyses
+#### Upsetr
+```{r}
+log2fc_threshold=fc_thresh
+lipidomic_key <- lipidomic_key[match(rownames(LM_area),lipidomic_key$name),]
+
+TreVsUntreLMME_low$class<-DMEMVsSTDPLMME_low$class<-STDPTreVsDMEMUntreLMME_low$class<-as.vector(lipidomic_key$LM.Main.Class)
+
+TreVsUntreLMME_lowSig <-
+    TreVsUntreLMME_low %>%
+    filter(mypadj < p_thresh) %>%
+    filter(abs(log2fc) >= fc_thresh)
+TreVsUntreLMMESig_MDM2Low <- TreVsUntreLMME_lowSig
+
+DMEMVsSTDPLMME_lowSig <-
+    DMEMVsSTDPLMME_low %>%
+    filter(mypadj < p_thresh) %>%
+    filter(abs(log2fc) >= fc_thresh)
+DMEMVsSTDPLMMESig_MDM2Low <- DMEMVsSTDPLMME_lowSig
+
+STDPTreVsDMEMUntreLMME_lowSig <-
+    STDPTreVsDMEMUntreLMME_low %>%
+    filter(mypadj < p_thresh) %>%
+    filter(abs(log2fc) >= fc_thresh)
+STDPTreVsDMEMUntreLMMESig_MDM2Low <- STDPTreVsDMEMUntreLMME_lowSig
+
+listInput <- list(Treated_vs_untreated = TreVsUntreLMME_lowSig$name,
+                  STDP_vs_DMEM = DMEMVsSTDPLMME_lowSig$name,
+                  Treated_STDP_vs_DMEM_untreated = STDPTreVsDMEMUntreLMME_lowSig$name)
+names(listInput) <- c("Atorvastatin vs Control",
+                      "STDP vs Control",
+                      "Atorvatstatin + STDP vs Control")
+pdf("Treatment_Medium_Upsetr_MDM2low.pdf",width=12,height = 8)
+upset(fromList(listInput),order.by="freq",text.scale=2)
+dev.off()
+
+upset(fromList(listInput),order.by="freq",text.scale=2)
+
+```
+   
+```{r, Plot ceramide shift Low}
+
+TreVsUntreLMME_low %>%
+    filter(class == "Ceramides" | class == "Neutral glycosphingolipids") %>%
+    ggplot(aes(y=log2fc,x=reorder(name,log2fc),fill=class)) +
+    labs(y = "log2(Treated-Untreated)",
+          x = "Lipid") +
+    geom_bar(stat="identity",color="black") +
+    coord_flip() +
+    scale_fill_manual(values = palette,
+                       ##labels=legend_labels,
+                       name="LipidMaps Main Class") +
+    ggtitle("Ceramides and Glycosylated Ceramides Altered by Atorvatstatin Treatment, (MDM2 Low Only)")
+```
+   
+#### Lipid list
+
+```{r, Lipid List MDM2 Low}
+    
+significant_lipids <- full_join(TreVsUntreLMME_lowSig,
+                                DMEMVsSTDPLMME_lowSig,
+                                by="name")
+
+significant_lipids <- full_join(significant_lipids,
+                                STDPTreVsDMEMUntreLMME_lowSig,
+                                by="name")
+
+significant_lipids <-
+    significant_lipids %>%
+    mutate(class=coalesce(class,class.x)) %>%
+    mutate(class=coalesce(class,class.y)) %>%
+    select(name,class,
+           log2fc.x,#mypadj.x,
+           log2fc.y,#mypadj.y,
+           log2fc,) %>% #mypadj) %>%
+    column_to_rownames("name")
+
+colnames(significant_lipids) <- c("class",
+                                  "Post-treatment",#"Post-treatment.pval",
+                                  "Post-STDP",#"Post-STDP.pval",
+                                  "Post-combo")#"Post-combo.pval")
+##significant_lipids$no.tests <- apply(significant_lipids,1,
+##                                    function(x){return(3-length(which(is.na(x))))})
+
+significant_lipids$altered.by <- apply(significant_lipids[,2:4],1,function(x){
+    is.significant <- as.numeric(which(!is.na(x)))
+    if(length(is.significant)==3){
+        return("All")
+    }else if(length(is.significant)==2){
+        if(identical(is.significant,c(1,2))){
+            return("Atorvastatin and Sterol deprivation but not Combination")
+        }else if(identical(is.significant,c(1,3))){
+            return("Atorvastatin and Combination but not Sterol deprivation alone")
+        }else if(identical(is.significant,c(2,3))){
+            return("Sterol deprivation and Combination but not Atorvastatin alone")
+        }
+    }else if(is.significant==1){
+        return("Atorvastatin treatment only")
+    }else if(is.significant==2){
+        return("Sterol deprivation only")
+    }else if(is.significant==3){
+        return("Combination treatment only")
+    }
+})
+write.csv(significant_lipids,"lipidomic_LMME_results_MDM2low.csv")    
+```
+#### Volcano plots
+##### Plots
+```{r, Volcano Plots MDM2 Low, fig.height=12}
+
+##ggplotly(volcano_plotter(TreVsUntreLMME_low,"Atorvastatin vs Control, MDM2 low only")[[1]] + xlim(-3.5,3.5) + ylim(0,7))
+ggplotly(volcano_plotter(DMEMVsSTDPLMME_low,"STDP vs Control, MDM2 low only")[[1]]+ xlim(-3.5,3.5) + ylim(0,7))
+##ggplotly(volcano_plotter(STDPTreVsDMEMUntreLMME_low, "Atorvatstatin + STDP vs Control, MDM2 low only")[[1]]+ xlim(-3.5,3.5) + ylim(0,7))
+
+fig3c<-volcano_plotter(TreVsUntreLMME_low,"Atorvastatin vs Control, MDM2 lower only")[[1]] + xlim(-3.5,3.5) + ylim(0,7) + labs(x="log2(Atorvastatin)-log2(Untreated)") #+
+    #theme(plot.title = element_text(size=23))
+volcano_plotter(DMEMVsSTDPLMME_low,"STDP vs Control, MDM2 low only")[[1]]+ xlim(-3.5,3.5) + ylim(0,7)
+volcano_plotter(STDPTreVsDMEMUntreLMME_low, "Atorvatstatin + STDP vs Control, MDM2 low only")[[1]]+ xlim(-3.5,3.5) + ylim(0,7)
+
+plot_grid(fig3c + theme(plot.title = element_text(size=23),
+                        plot.margin=unit(c(5.5, 5.5, 30, 5.5), "points")),
+          fig3d + theme(plot.title = element_text(size=23),
+                        plot.margin=unit(c(30, 150, 5.5, 5.5), "points")),
+          ncol=1)
+
+```
+
+## Trends for Glycosyl-N-Palmitoyl-Sphingosine
+
+```{r, Trends in glycosyl-n-palmitoyl sphingosine,fig.height=5, fig.width=12}
+
+paired_key = paired_key %>%
+    unite("Combo",Treatment_Status,Medium,sep="_",remove=FALSE)
+
+boxplotter<-function(group1,group2,independent_variable,analyte="HexCer-NS(d18:1/16:0)"){
+    analyteInd <- match(analyte, rownames(LM_area))
+    BPdf <- data.frame(independent_variable = as.vector(paired_key[,match(independent_variable,colnames(paired_key))])[match(c(group1,group2),as.vector(paired_key$Run_Order))],
+                       value = t(LM_area[analyteInd, match(c(group1,group2),colnames(LM_area))]),
+                       treatment_status = as.vector(paired_key$Treatment_Status)[match(c(group1,group2),as.vector(paired_key$Run_Order))],
+                       medium = as.vector(paired_key$Medium)[match(c(group1,group2),as.vector(paired_key$Run_Order))],
+                       cell_line = as.vector(paired_key$Cell_line)[match(c(group1,group2),as.vector(paired_key$Run_Order))])
+    colnames(BPdf)[2] <- c("log2Abundance")
+    
+    p <- ggplot(BPdf, aes(x = cell_line, y = log2Abundance)) +
+        geom_jitter(width = 0.125, size = 3) +
+        scale_color_brewer(type="seq",palette="Set2") +
+        facet_grid(.~independent_variable,scales="free") +
+        geom_boxplot(aes(x=independent_variable,y=log2Abundance),alpha=0.25,fill="gray40") +
+        scale_fill_manual(values=mycol) +
+        theme_bw() +
+        theme(legend.position = "none",axis.title.x=element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), text = element_text(size=20))
+    return(p)
+}
+
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Hi_Untreated_DMEM,"MDM2_status")+
+    ggtitle("MDM2 High vs Low, Untreated, HexCer-NS(d18:1/16:0)")
+boxplotter(groupMDM2Hi_Untreated_DMEM,groupMDM2Hi_Treated_DMEM,"Treatment_Status")+
+    ggtitle("MDM2 High, Treated vs Untreated, HexCer-NS(d18:1/16:0)")
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Treated_DMEM,"Treatment_Status")+
+    ggtitle("MDM2 Low, Treated vs Untreated, HexCer-NS(d18:1/16:0)")
+boxplotter(groupMDM2Hi_Untreated_DMEM,groupMDM2Hi_Untreated_STDP,"Medium")+
+    ggtitle("MDM2 High, Sterol Deprived vs Regular Media, HexCer-NS(d18:1/16:0)")
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Untreated_STDP,"Medium")+
+    ggtitle("MDM2 Low, Sterol Deprived vs Regular Media, HexCer-NS(d18:1/16:0)")
+boxplotter(groupMDM2Hi_Untreated_DMEM,groupMDM2Hi_Treated_STDP,"Combo")+
+    ggtitle("MDM2 High, Sterol Deprived/Atorvastatin treated vs Control, HexCer-NS(d18:1/16:0)")
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Treated_STDP,"Combo")+
+    ggtitle("MDM2 Low, Sterol Deprived/Atorvastatin treated vs Control, HexCer-NS(d18:1/16:0)")
+
+```
+
+## Glycosylated ceramides post treatment in MDM2 low
+
+```{r, Glycosylated ceramides post treatment in MDM2 low}
+
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Treated_DMEM,"Treatment_Status")+
+    ggtitle("MDM2 Low, Treated vs Untreated, HexCer-NS(d18:1/16:0)")
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Treated_DMEM,"Treatment_Status",
+           "HexCer-NS(d18:1/23:0)") +
+    ggtitle("MDM2 Low, Treated vs Untreated, HexCer-NS(d18:1/23:0)")
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Treated_DMEM,"Treatment_Status",
+           "HexCer-NS(d18:1/24:0)") +
+    ggtitle("MDM2 Low, Treated vs Untreated, HexCer-NS(d18:1/24:0)")
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Treated_DMEM,"Treatment_Status",
+           "HexCer-NS(d18:1/24:1)") +
+    ggtitle("MDM2 Low, Treated vs Untreated, HexCer-NS(d18:1/24:1)")
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Treated_DMEM,"Treatment_Status",
+           "HexCer-NS(d18:1/26:1)") +
+    ggtitle("MDM2 Low, Treated vs Untreated, HexCer-NS(d18:1/26:1)")
+boxplotter(groupMDM2Lo_Untreated_DMEM,groupMDM2Lo_Treated_DMEM,"Treatment_Status",
+           "HexCer-NS(d19:1/25:0)") +
+    ggtitle("MDM2 Low, Treated vs Untreated, HexCer-NS(d19:1/25:0)")
+
+```
+
+## Compare/contrast MDM2 high and low
+
+```{r, Compare and contrast MDM2 high and low}
+listInput <- list(TreVsUntreLMMESig_MDM2High$name,
+                  TreVsUntreLMMESig_MDM2Low$name)
+names(listInput) <- c("Treated vs Untreated, MDM2 High",
+                      "Treated vs Untreated, MDM2 Low")
+pdf("Treatment_MDM2HighVsLow_Upsetr.pdf",width=12,height = 8)
+upset(fromList(listInput),order.by="freq",text.scale=2)
+dev.off()
+
+upset(fromList(listInput),order.by="freq",text.scale=2)
+
+listInput <- list(DMEMVsSTDPLMMESig_MDM2High$name,
+                  DMEMVsSTDPLMMESig_MDM2Low$name)
+names(listInput) <- c("STDP vs DMEM, MDM2 High",
+                      "STDP vs DMEM, MDM2 Low")
+pdf("Medium_MDM2HighVsLow_Upsetr.pdf",width=12,height = 8)
+upset(fromList(listInput),order.by="freq",text.scale=2)
+dev.off()
+
+upset(fromList(listInput),order.by="freq",text.scale=2)
+
+listInput <- list(STDPTreVsDMEMUntreLMMESig_MDM2High$name,
+                  STDPTreVsDMEMUntreLMMESig_MDM2Low$name)
+names(listInput) <- c("Treated + STDP vs Untreated, MDM2 High",
+                      "Treated + STDP vs Untreated, MDM2 Low")
+pdf("Medium_and_Treatment_MDM2HighVsLow_Upsetr.pdf",width=12,height = 8)
+upset(fromList(listInput),order.by="freq",text.scale=2)
+dev.off()
+
+upset(fromList(listInput),order.by="freq",text.scale=2)
+
+```
+
+## Panel Overlap
+
+```{r, Panel overlap, fig.height = 8}
+
+## Lipidomic data
+load("~/Desktop/Liposarcoma project/final_figures/LipidMDM2HiLoSummary.Rdata")
+load("~/Desktop/Liposarcoma project/SarcomaLines.Rdata")
+lipidomicMDM2HiLo<-summary
+
+lipidomic_key<-read.csv("~/Desktop/Liposarcoma project/final_lipidomic_analysis/Lipidomic_Key_Updated.csv")
+
+## Metabolomic data
+metabLipid <- metabmeta %>% filter(SUPER.PATHWAY=="Lipid")
+
+lipid_key<-read_xlsx("~/Desktop/Liposarcoma project/Lipidomics_key.xlsx",sheet=2)
+
+## Barplot
+mytablelipid<-table(lipidomic_key$LM.Main.Class)
+mytablemetabolite<-table(lipid_key$`LM Main Class`)
+
+compmatrix<-t(sapply(sort(unique(c(names(mytablemetabolite),names(mytablelipid)))), function(x){
+     return(c(x %in% names(mytablemetabolite), x %in% names(mytablelipid)))
+ }))
+colnames(compmatrix)<-c("Metabolomic","Lipidomic")
+
+metabolite_df<-as.data.frame(mytablemetabolite)
+
+lipid_BP_DF<-rbind(as.data.frame(mytablelipid),metabolite_df)
+colnames(lipid_BP_DF)=c("lipid_main_classes","Freq")
+lipid_BP_DF$dataset<-c(rep("Lipidomic",times=length(mytablelipid)),rep("Metabolomic",times=length(mytablemetabolite)))
+lipid_BP_DF$FreqStand<-rep(0,times=nrow(lipid_BP_DF))
+lipid_BP_DF$FreqStand[1:length(mytablelipid)]<-lipid_BP_DF$Freq[1:length(mytablelipid)]/sum(lipid_BP_DF$Freq[1:length(mytablelipid)])
+lipid_BP_DF$FreqStand[(length(mytablelipid)+1):nrow(lipid_BP_DF)]<-
+    lipid_BP_DF$Freq[(length(mytablelipid)+1):nrow(lipid_BP_DF)]/sum(lipid_BP_DF$Freq[(length(mytablelipid)+1):nrow(lipid_BP_DF)])
+lipid_BP_DF$Both<-as.factor(sapply(lipid_BP_DF$lipid_main_classes,function(x) return(x %in% names(which(apply(compmatrix,1,all))))))
+lipid_BP_DF<-arrange(lipid_BP_DF,desc(Both),lipid_main_classes)
+
+lipid_BP_DF <- lipid_BP_DF %>%
+    mutate(lipid_main_classes = factor(lipid_main_classes, levels = unique(lipid_main_classes)))
+
+lipid_BP_DF$Group <- apply(lipid_BP_DF,1,function(x){
+    if(length(which(!is.na(match(lipid_BP_DF$lipid_main_classes,x[1]))))>1){
+        return("Both Panels")
+    }else{
+        return(paste0(x[3]," Only"))
+    }
+})
+
+lipid_BP_DF <- within(lipid_BP_DF, 
+                      Group <- factor(Group, 
+                                      levels=names(sort(table(Group), 
+                                                        decreasing=TRUE))))
+
+figS3A <- lipid_BP_DF %>%
+    ##arrange(Group) %>%
+    ggplot(aes(x=lipid_main_classes,y=Freq)) +
+    theme_classic(base_size=20) +
+    geom_bar(stat = "identity",position="dodge",aes(fill=dataset),colour="black") +
+    facet_grid(. ~ Group, scales = "free", space = "free") +
+    scale_fill_manual(values = c("#E1B378","#5F9EA0")) +
+    xlab("") +
+    ylab("# of species") +
+    scale_y_continuous(limits=c(0,200)) +
+    ggtitle("Lipid Panel Composition by LipidMaps main class") +
+    guides(fill=guide_legend(title="")) +
+    theme(axis.line = element_line(colour = "black"),
+          axis.text.x = element_text(angle = 45, hjust = 1,face="bold"),
+          axis.title=element_text(size=12,face="bold"),
+          plot.title=element_text(size=14,face="bold"))
+figS3A
+```
+
+
+```{r, Platform correlation}
+library(readxl)
+library(ggpubr)
+
+
+data<-read_excel("~/Desktop/Liposarcoma project/final_dataframes_and_metadata/direct_mappings.xlsx")
+
+data<-data[-c(nrow(data),nrow(data)-1),]
+
+colnames(data)<-gsub(" ","_",colnames(data))
+
+sp <- ggscatter(data, x = "Metabolite_FC", y = "Lipid_FC",
+   add = "reg.line",  # Add regressin line
+   add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
+   conf.int = TRUE,
+   xlab="Metabolomic Fold Change",
+   ylab="Lipidomic Fold Change"
+   )
+sp + stat_cor(method = "pearson", label.x = 3, label.y = 3) +
+    geom_hline(yintercept = 0) +
+    geom_vline(xintercept = 0)
+
+png("~/Documents/andyptt21.github.io/Lab_presentation_1_27_20/img/panel_correlation.png"
+   ,width=6,height=3,units="in",res=200)
+sp + stat_cor(method = "pearson", label.x = 2.5, label.y = 3) +
+    geom_hline(yintercept = 0) +
+    geom_vline(xintercept = 0)
+dev.off()
+
+```
+
+```{r, Save final dataframe and metadata,echo=FALSE}
+saveRDS(LM_area,"~/Desktop/Liposarcoma project/final_dataframes_and_metadata/lipid_data.rds")
+
+lipid_metadata<-list(groupMDM2Hi_Untreated_STDP,
+                     groupMDM2Hi_Untreated_DMEM,
+                     groupMDM2Lo_Untreated_STDP,
+                     groupMDM2Lo_Untreated_DMEM,
+                     groupMDM2Hi_Treated_STDP,
+                     groupMDM2Hi_Treated_DMEM,
+                     groupMDM2Lo_Treated_STDP,
+                     groupMDM2Lo_Treated_DMEM,
+                     paired_key %>% select(Cell_line))
+
+names(lipid_metadata)<-c("mdm2hiUntreatedSTDPSamps",
+                         "mdm2hiUntreatedDMEMSamps",
+                         "mdm2loUntreatedSTDPSamps",
+                         "mdm2loUntreatedDMEMSamps",
+                         "mdm2hiTreatedSTDPSamps",
+                         "mdm2hiTreatedDMEMSamps",
+                         "mdm2loTreatedSTDPSamps",
+                         "mdm2loTreatedDMEMSamps",                         
+                         "cell_lines")
+saveRDS(lipid_metadata,"~/Desktop/Liposarcoma project/final_dataframes_and_metadata/metab_metadata.rds")
+```
