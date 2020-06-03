@@ -189,7 +189,9 @@ p
 # Visualize Metabolon Superpathway of Detected Metabolites
 
 ```{r, Panel composition,fig.width=16}
-myPalette<-c("#e6194b","#8B008B","#808080","#f58231","#008080","#46f0f0","#3cb44b","mediumblue")
+myPalette<-c("#e6194b","#8B008B","#808080","#f58231","#008080","#46f0f0","#3cb44b","mediumblue","gray80")[c(4,1,3,2,5,7,6,8,9)]
+names(myPalette)<-c(names(sort(table(metabmeta$SUPER.PATHWAY),decreasing=TRUE)),
+                    "Not Significant")
 
 ggplot(metabmeta,aes(x=forcats::fct_infreq(SUPER.PATHWAY),
                      fill=forcats::fct_infreq(SUPER.PATHWAY))) +
@@ -199,7 +201,7 @@ ggplot(metabmeta,aes(x=forcats::fct_infreq(SUPER.PATHWAY),
           axis.title.y = element_text(size=26),
           legend.title = element_blank()) +
     labs(x="Chemical Superpathway", y="# of Metabolites") +
-    scale_fill_manual(values=myPalette[c(4,1,3,2,5,7,6,8)])
+    scale_fill_manual(values=myPalette)
 ```
 
 Metabolon data requires minimal preprocessing since abundances are
@@ -264,12 +266,13 @@ resMDM2HiLoLMME = mdm2HiLoLMME %>%
                          as.character(metabmeta$SUPER.PATHWAY)[match(name,metabmeta$BIOCHEMICAL)],                         
                          "Not Significant"))
 
-myPalette<-c("#e6194b","#8B008B","#808080","#f58231","gray80","#008080","#46f0f0","mediumblue")
+##myPalette<-c("#e6194b","#8B008B","#808080","#f58231","gray80","#008080","#46f0f0","mediumblue")
 
 p<-ggplot(data=resMDM2HiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     geom_point(aes(size=size,text=name)) +
     theme_bw() +
-    scale_color_manual(values = myPalette[c(1,2,8,4,5,3,6)]) +
+    ##scale_color_manual(values = myPalette[c(1,2,8,4,5,3,6)]) +
+    scale_color_manual(values = myPalette) +
     ggtitle("MDM2 Higher vs Lower") +
     theme(plot.title = element_text(hjust = 0.5)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
@@ -340,7 +343,7 @@ p <- ggplot(mdm2HiLo_Sig,aes(x=reorder(name,log2fc), y=log2fc, fill = class)) +
           legend.text=element_text(size=16),
           legend.title=element_text(size=18)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-    scale_fill_manual(values=myPalette[c(1,2,8,4,3,6)]) #+
+    scale_fill_manual(values=myPalette)##[c(1,2,8,4,3,6)]) #+
 ##theme(legend.position="bottom",legend.direction="vertical")
 p
 ```
@@ -410,7 +413,7 @@ boxplotter("N-palmitoyl-sphingosine (d18:1/16:0)",mdm2hi_filtered,mdm2loTreated_
 boxplotter("N-palmitoyl-sphingosine (d18:1/16:0)",mdm2lo_filtered,mdm2loTreated_filtered)
 ```
 
-## Treated Hi vs Lo
+## Treated Hi vs Treated Lo
 
 ```{r,fig.height=6,eval=TRUE}
 
@@ -464,15 +467,15 @@ mdm2TreHiLoLMME = mdm2TreHiLoLMME %>%
 
 mdm2TreHiLoLMME$name = rownames(metabFiltered)
 
-myPalette<-c("#e6194b",
-             "#8B008B",
-             "forestgreen",
-             "#808080",
-             "#f58231",
-             "gray80",
-             "#008080",
-             "#46f0f0",
-             "#3cb44b")
+ ## myPalette<-c("#e6194b",
+ ##             "#8B008B",
+ ##             "forestgreen",
+ ##             "#808080",
+ ##             "#f58231",
+ ##             "gray80",
+ ##             "#008080",
+ ##             "#46f0f0",
+ ##             "#3cb44b")
 
 p<-ggplot(data=mdm2TreHiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     geom_point(aes(size=size,text=name)) +
@@ -497,10 +500,21 @@ p
 
 ## Treated Hi vs Untreated Hi
 
-```{r,fig.height=6,eval=FALSE}
-mysamps = c(mdm2hiTreated_samps,mdm2hi)
-  categ = c(mycateg[mdm2hiTreated],mycateg[mdm2hi])
-  status = c(rep("High_treated",length(mdm2hiTreated_samps)),rep("high",length(mdm2hi)))
+```{r,fig.height=6,eval=TRUE}
+mdm2_high_untreated_samps_no224<-sample_table %>%
+    filter(MDM2_status=="High" & Treatment_status=="Untreated" & Cell != "224") %>%
+    dplyr::select(SAMPLE.NAME) %>%
+    as.matrix() %>%
+    as.vector()
+mdm2_high_untreated_cells_no224<-sample_table %>%
+    filter(MDM2_status=="High" & Treatment_status=="Untreated" & Cell != "224") %>%
+    dplyr::select(Cell) %>%
+    as.matrix() %>%
+    as.vector()
+
+mysamps = c(mdm2_high_treated_samps,mdm2_high_untreated_samps_no224)
+  categ = c(mdm2_high_treated_cells,mdm2_high_untreated_cells_no224)
+  status = c(rep("High_treated",length(mdm2_high_treated_samps)),rep("high",length(mdm2_high_untreated_samps_no224)))
 if(!exists("mdm2HiTreLMME")){
   mdm2HiTreLMME<-t(sapply(c(1:nrow(metabFiltered)), function(x){
       df=data.frame(t(metabFiltered[x, mysamps]),categ,status)
@@ -512,7 +526,7 @@ if(!exists("mdm2HiTreLMME")){
           #print(x)
           #print(anovaFit$'Pr(>Chisq)'[2])
       }
-      log2fc = mean(as.matrix(metabFiltered[x,mdm2hiTreated_samps])) - mean(as.matrix(metabFiltered[x,mdm2hi]))
+      log2fc = mean(as.matrix(metabFiltered[x,mdm2_high_treated_samps])) - mean(as.matrix(metabFiltered[x,mdm2_high_untreated_samps]))
       return(c(anovaFit$'Pr(>Chisq)'[2],log2fc))
   }))
 
@@ -553,29 +567,9 @@ p
 Next comparing 815 and 863 treated and untreated (224B is filtered out since there is no treatment data available for this cell line)
 
 ```{r,fig.height=6}
-mdm2_high_treated_samps<-sample_table %>%
-    filter(MDM2_status=="High" & Treatment_status=="Treated") %>%
-    dplyr::select(SAMPLE.NAME) %>%
-    as.matrix() %>%
-    as.vector()
-mdm2_low_treated_samps<-sample_table %>%
-    filter(MDM2_status=="Low" & Treatment_status=="Treated") %>%
-    dplyr::select(SAMPLE.NAME) %>%
-    as.matrix() %>%
-    as.vector()
 mdm2_low_untreated_samps_no224B<-sample_table %>%
     filter(MDM2_status=="Low" & Treatment_status=="Untreated" & Cell != "224B") %>%
     dplyr::select(SAMPLE.NAME) %>%
-    as.matrix() %>%
-    as.vector()
-mdm2_high_treated_cells<-sample_table %>%
-    filter(MDM2_status=="High" & Treatment_status=="Treated") %>%
-    dplyr::select(Cell) %>%
-    as.matrix() %>%
-    as.vector()
-mdm2_low_treated_cells<-sample_table %>%
-    filter(MDM2_status=="Low" & Treatment_status=="Treated") %>%
-    dplyr::select(Cell) %>%
     as.matrix() %>%
     as.vector()
 mdm2_low_untreated_cells_no224B<-sample_table %>%
@@ -621,16 +615,16 @@ mdm2LoTreLMME = mdm2LoTreLMME %>%
                         "Not Significant"))
 ##myPalette<-c("#e6194b","#8B008B","#808080","#f58231","#008080","#46f0f0","gray80","#3cb44b")
 
-myPalette<-c(
-    "#8B008B",
-    "royalblue",
-    "#f58231",
-    "gray80",
-    "#808080",
-    "#e6194b",
-    "#008080",
-    "#46f0f0",
-    "#3cb44b")
+## myPalette<-c(
+##     "#8B008B",
+##     "royalblue",
+##     "#f58231",
+##     "gray80",
+##     "#808080",
+##     "#e6194b",
+##     "#008080",
+##     "#46f0f0",
+##     "#3cb44b")
 
 
 p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
@@ -763,9 +757,9 @@ heatmap.2(metab_hclust, scale = "none", col = bluered(100),
 ## Treated vs Untreated
 
 ```{r,fig.height=6,eval=FALSE}
-mysamps = c(mdm2hiTreated_samps,mdm2_low_treated_samps,mdm2hi,mdm2lo)
+mysamps = c(mdm2_high_treated_samps,mdm2_low_treated_samps,mdm2hi,mdm2lo)
   categ = c(mycateg[mdm2hiTreated],mycateg[mdm2loTreated],mycateg[mdm2hi],mycateg[mdm2lo])
-  status = c(rep("Treated",length(mdm2hiTreated_samps)+length(mdm2_low_treated_samps)),rep("Untreated",length(mdm2lo)+length(mdm2lo)))
+  status = c(rep("Treated",length(mdm2_high_treated_samps)+length(mdm2_low_treated_samps)),rep("Untreated",length(mdm2lo)+length(mdm2lo)))
 if(!exists("mdm2TrevsUntre")){
   mdm2TrevsUntre<-t(sapply(c(1:nrow(metabFiltered)), function(x){
       df=data.frame(t(metabFiltered[x, mysamps]),categ,status)
