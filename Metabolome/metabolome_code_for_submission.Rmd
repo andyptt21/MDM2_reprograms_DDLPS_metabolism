@@ -530,11 +530,11 @@ if(!exists("mdm2LoTreLMME")){
   mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
   mdm2LoTreLMME$name = rownames(metabFiltered)
 }
-hist(mdm2LoTreLMME$mypadj,breaks=100)
+hist(mdm2LoTreLMME$myp,breaks=100)
 
 
 mdm2LoTreLMME = mdm2LoTreLMME %>%
-    mutate(class=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,
+    mutate(class=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,
                         as.character(metabmeta$SUPER.PATHWAY[match(name,metabmeta$BIOCHEMICAL)]),
                         "Not Significant"))
 
@@ -547,7 +547,7 @@ p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
     ylab("-log10 p-value") +
     xlab("log2(MDM2Lo Treated - MDM2Lo)") +
-    geom_hline(yintercept = -log10(0.05),lty = 2) +
+    geom_hline(yintercept = -log10(0.1),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
     scale_alpha(range=c(0.2,0.7)) +
