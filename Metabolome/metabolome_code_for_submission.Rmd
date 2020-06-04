@@ -60,9 +60,8 @@ if(!require("RaMP")){
 # Load data and metadata, and define statistical groups
 
 ```{r}
-load("SarcomaLines.Rdata")
-mycateg=gsub("_.*","",sampmeta$CLIENT.IDENTIFIER)
-mycol=c("red","blue")
+load("NewSarcomaLines.Rdata")
+mycateg=gsub("_.*","",sample_table$CLIENT.IDENTIFIER)
 
 getind <- function(subcateg, allcateg) {
     ind=c()
@@ -98,7 +97,8 @@ groups<-unique(mycateg[mysamps])
 # Filter out metabolites with a high proportion of missing values or a high coefficient of variation
 
 ```{r}
-metabDDLPS <- metab[,mysamps]
+
+mycol=c("red","blue")
 missingValues <- apply(metabDDLPS,1,function(x) return((length(which(x==min(x)))-1)/length(x)))
 hist(missingValues,breaks=100,main="Missing Values by Metabolite")
 
@@ -125,16 +125,16 @@ mysamps <- c(which(as.vector(mystatus)=="MDM2Hi"),which(as.vector(mystatus)=="MD
 mycell=mycell[mysamps]
 mystatus <- mystatus[mysamps]
 
-sample_table<-sampmeta %>%
-    filter(SAMPLE.NAME %in% colnames(metabFiltered)) %>%
-    dplyr::select(SAMPLE.NAME,CLIENT.IDENTIFIER) %>%
-    mutate(Cell=gsub("_.*","",CLIENT.IDENTIFIER)) %>%
-    mutate(MDM2_status=ifelse(Cell %in% mdm2hi_groups | Cell %in% mdm2hitreated_groups,
-            "High",
-            "Low")) %>%
-    mutate(Treatment_status=ifelse(grepl("RG5",CLIENT.IDENTIFIER),
-                                   "Treated",
-                                   "Untreated"))
+## sample_table<-sampmeta %>%
+##     filter(SAMPLE.NAME %in% colnames(metabFiltered)) %>%
+##     dplyr::select(SAMPLE.NAME,CLIENT.IDENTIFIER) %>%
+##     mutate(Cell=gsub("_.*","",CLIENT.IDENTIFIER)) %>%
+##     mutate(MDM2_status=ifelse(Cell %in% mdm2hi_groups | Cell %in% mdm2hitreated_groups,
+##             "High",
+##             "Low")) %>%
+##     mutate(Treatment_status=ifelse(grepl("RG5",CLIENT.IDENTIFIER),
+##                                    "Treated",
+##                                    "Untreated"))
 
 ```
 
@@ -144,8 +144,6 @@ sample_table<-sampmeta %>%
 ## Set ggplot default theme
 theme_set(theme_classic(base_size = 14))
 
-mycateg=gsub("_.*","",sampmeta$CLIENT.IDENTIFIER)
-library(RColorBrewer)
 mycol=c("red","blue")
 
 getind <- function(subcateg, allcateg) {
@@ -256,6 +254,8 @@ if(!exists("mdm2HiLoLMME")){
     mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
     mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
     mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
+    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(sig0.05=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,TRUE,FALSE))
+    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(sig0.1=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,TRUE,FALSE))
 }
 hist(mdm2HiLoLMME$mypadj,breaks=100,main="Adjusted p value distribution of MDM2 higher vs lower comparison")
 
@@ -495,12 +495,14 @@ Next comparing 815 and 863 treated and untreated (224B is filtered out since the
 
 ```{r,fig.height=6}
 mdm2_low_untreated_samps_no224B<-sample_table %>%
-    filter(MDM2_status=="Low" & Treatment_status=="Untreated" & Cell != "224B") %>%
+    ##filter(MDM2_status=="Low" & Treatment_status=="Untreated" & Cell != "224B") %>%
+    filter(MDM2_status=="Low" & Treatment_status=="Untreated") %>%
     dplyr::select(SAMPLE.NAME) %>%
     as.matrix() %>%
     as.vector()
 mdm2_low_untreated_cells_no224B<-sample_table %>%
-    filter(MDM2_status=="Low" & Treatment_status=="Untreated" & Cell != "224B") %>%
+    ##filter(MDM2_status=="Low" & Treatment_status=="Untreated" & Cell != "224B") %>%
+    filter(MDM2_status=="Low" & Treatment_status=="Untreated") %>%
     dplyr::select(Cell) %>%
     as.matrix() %>%
     as.vector()
@@ -517,26 +519,25 @@ if(!exists("mdm2LoTreLMME")){
       fit.null<-lmer(y ~ (1|categ), data = df,REML=FALSE)
       fit<-lmer(y ~ status + (1|categ), data = df,REML=FALSE)
       anovaFit<-anova(fit.null,fit)
-      log2fc = mean(as.matrix(metabFiltered[x,mdm2_low_treated_samps])) - mean(as.matrix(metabFiltered[x,mdm2lo]))
+      log2fc = mean(as.matrix(metabFiltered[x,mdm2_low_treated_samps])) - mean(as.matrix(metabFiltered[x,mdm2_low_untreated_samps_no224B]))
       return(c(anovaFit$'Pr(>Chisq)'[2],log2fc))
   }))
 
   mdm2LoTreLMME <- as.data.frame(mdm2LoTreLMME)
   colnames(mdm2LoTreLMME)<-c("myp","log2fc")
   mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
-  mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
-  mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
+  mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(alpha=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,0.05,0.025))
+  mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(size=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,4,2))
   mdm2LoTreLMME$name = rownames(metabFiltered)
 }
 hist(mdm2LoTreLMME$myp,breaks=100)
 
-
 mdm2LoTreLMME = mdm2LoTreLMME %>%
-    mutate(class=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,
+    mutate(class=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,
                         as.character(metabmeta$SUPER.PATHWAY[match(name,metabmeta$BIOCHEMICAL)]),
                         "Not Significant"))
-
-p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
+write.csv(mdm2LoTreLMME,"~/Desktop/temp.csv")
+p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(myp), colour=class)) +
     geom_point(aes(size=size,text=name)) +
     theme_bw() +
     scale_color_manual(values = myPalette) +
@@ -545,7 +546,7 @@ p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
     ylab("-log10 p-value") +
     xlab("log2(MDM2Lo Treated - MDM2Lo)") +
-    geom_hline(yintercept = -log10(0.1),lty = 2) +
+    ##geom_hline(yintercept = -log10(0.1),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
     scale_alpha(range=c(0.2,0.7)) +
@@ -577,7 +578,7 @@ fig2D
 
 ```
 
-## Treated vs Untreated
+## Treated vs Untreated, All Samples
 
 ```{r,fig.height=6,eval=FALSE}
 mysamps = c(mdm2_high_treated_samps,mdm2_low_treated_samps,mdm2hi,mdm2lo)
@@ -722,7 +723,7 @@ heatmap.2(metab_hclust, scale = "none", col = bluered(100),
 ## Trends for Glycosyl-N-Palmitoyl-Sphingosine
 ```{r, glycosyl-n-palmitoyl-sphingosine,eval=FALSE}
 
-sampmeta_filtered<-left_join(data.frame(SAMPLE.NAME=colnames(metabFiltered)),sampmeta, by = "SAMPLE.NAME")
+sampmeta_filtered<-left_join(data.frame(SAMPLE.NAME=colnames(metabFiltered)),sample_table, by = "SAMPLE.NAME")
 
 mycateg_filtered=gsub("_.*","",sampmeta_filtered$CLIENT.IDENTIFIER)
 
@@ -794,7 +795,7 @@ metab_metadata<-list(mdm2hi_filtered,
                  mdm2loTreated_filtered,
                  mdm2hiTreatedRG1_filtered,
                  mdm2loTreatedRG1_filtered,
-                 left_join(data.frame(SAMPLE.NAME=colnames(metabFiltered)),sampmeta,by="SAMPLE.NAME") %>% dplyr::select(MANIFEST.ID)
+                 left_join(data.frame(SAMPLE.NAME=colnames(metabFiltered)),sample_table,by="SAMPLE.NAME") %>% dplyr::select(MANIFEST.ID)
 )
 
 names(metab_metadata)<-c("mdm2hiUntreatedSamps",

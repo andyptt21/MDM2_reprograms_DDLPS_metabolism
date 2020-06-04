@@ -11,57 +11,47 @@ output:
     highlight: tango
 ---
 
+# Load data and metadata, and define statistical groups
+
 ```{r}
 load("SarcomaLines.Rdata")
+mycateg=gsub("_.*","",sampmeta$CLIENT.IDENTIFIER)
 
-#columns MANIFEST.ID and Group are equal so remove Group:
-sampmeta <- sampmeta[,-which(colnames(sampmeta) %in% "Group")]
-
-mysamps <- c("141", "224", "224B","246","815","863")
-
-ind<-c()
-for (i in mysamps) {
-	ind <- c(ind, grep(i,sampmeta$MANIFEST.ID))
+getind <- function(subcateg, allcateg) {
+    ind=c()
+    for (i in 1:length(subcateg)) {
+        ind=c(ind, which(allcateg==subcateg[i]))
+    }
+    return(ind)
 }
 
+mdm2lo_groups=c("863","815","224B")
+mdm2hi_groups=c("224","246","141")
 
-newsampmeta <- sampmeta[ind[!grepl("RG1",sampmeta$MANIFEST.ID[ind])],]
-newsampmeta <- as.data.frame(lapply(newsampmeta, function(x) if(is.factor(x)) factor(x) else x))
-table(newsampmeta$MANIFEST.ID)
+mdm2lo=getind(subcateg=mdm2lo_groups,allcateg=mycateg)
+mdm2hi=getind(subcateg=mdm2hi_groups,allcateg=mycateg)
 
-newsampmeta[which(newsampmeta$MANIFEST.ID=="224B"),]
+mdm2lotreated_groups <- c("863RG5","815RG5")
+mdm2hitreated_groups <- c("246RG5","141RG5")
 
-newsampmeta <- newsampmeta[-c(12,13,14),] # removing duplicate lines
-table(newsampmeta$MANIFEST.ID)
+mdm2loTreated=getind(subcateg=mdm2lotreated_groups,allcateg=mycateg)
+mdm2hiTreated=getind(subcateg=mdm2hitreated_groups,allcateg=mycateg)
 
-finalsampmeta <- newsampmeta[,c("SAMPLE.NAME", "CLIENT.IDENTIFIER","MANIFEST.ID")]
+mysamps = c(mdm2hi,mdm2lo,mdm2hiTreated,mdm2loTreated)
 
-temp <- as.character(finalsampmeta$MANIFEST.ID)
-temp[grep("RG5",finalsampmeta$MANIFEST.ID)] = "Treated"
-temp[which(temp!="Treated")]="Untreated"
-finalsampmeta$Treated_status <- as.factor(temp)
-
-finalsampmeta$Cell <- as.factor(gsub("RG5","",gsub("_.*","",finalsampmeta$CLIENT.IDENTIFIER)))
-
-temp <- as.character(finalsampmeta$Cell)
-temp[which(finalsampmeta$Cell=="141")]="High"
-temp[which(finalsampmeta$Cell=="224")]="High"
-temp[which(finalsampmeta$Cell=="224B")]="Low"
-temp[which(finalsampmeta$Cell=="246")]="High"
-temp[which(finalsampmeta$Cell=="815")]="Low"
-temp[which(finalsampmeta$Cell=="863")]="Low"
-finalsampmeta$MDM2_status=as.factor(temp)
-
-summary(finalsampmeta)
-
-finalmetab <- metab[,finalsampmeta$SAMPLE.NAME]
-
-metab <- finalmetab
-sampmeta <- finalsampmeta
-
-save(metab,sampmeta,metabmeta,file="NewSarcomaLines.Rdata")
-
+metabDDLPS <- metab[,mysamps]
+sample_table<-sampmeta %>%
+    filter(SAMPLE.NAME %in% colnames(metabFiltered)) %>%
+    dplyr::select(SAMPLE.NAME,CLIENT.IDENTIFIER) %>%
+    mutate(Cell=gsub("_.*","",CLIENT.IDENTIFIER)) %>%
+    mutate(MDM2_status=ifelse(Cell %in% mdm2hi_groups | Cell %in% mdm2hitreated_groups,
+            "High",
+            "Low")) %>%
+    mutate(Treatment_status=ifelse(grepl("RG5",CLIENT.IDENTIFIER),
+                                   "Treated",
+                                   "Untreated"))
+save(metabDDLPS,
+     sample_table,
+     metabmeta,
+     file="NewSarcomaLines.Rdata")
 ```
-
-Why are there duplicate entries for the 3 cell lines?  The numbers don't match what is in Table 1 for 224B.  Is it OK to remove them?
-
