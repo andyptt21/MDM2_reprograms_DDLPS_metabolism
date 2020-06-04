@@ -15,7 +15,7 @@ output:
 ```{r,echo=FALSE}
 knitr::opts_chunk$set(message=FALSE,warning=FALSE, 
                       fig.height=6,fig.width = 10,fig.fullwidth = TRUE)
-rm(list=ls())
+##rm(list=ls())
 ```
 The code in this script was used to identify metabolomic differences between MDM2 higher and lower cell lines, as well as differences driven by MDM2 inhibitor treatment. Code for some of the figures in the paper as well as for generating the supplementary data tables is also included.
 
@@ -211,7 +211,9 @@ Now that data are quality controlled, we perform linear mixed effect
 modeling to identify differentially abundant metabolites, controlling
 for cell line effects.
 
-# MDM2 Higher  vs Lower, Untreated
+# Linear Mixed Effect Modeling
+
+## MDM2 Higher  vs Lower, Untreated
 ```{r}
 ##categ = names(mystatus)[mysamps]
 ##status = mystatus[mysamps]
@@ -288,6 +290,8 @@ p
 
 ```
 
+### Fig S1D
+
 ```{r, fig.height=8,eval=FALSE}
 
 boxplotter <- function(analyte) {
@@ -348,71 +352,6 @@ p <- ggplot(mdm2HiLo_Sig,aes(x=reorder(name,log2fc), y=log2fc, fill = class)) +
 p
 ```
 
-## Trends for Glycosyl-N-Palmitoyl-Sphingosine
-```{r, glycosyl-n-palmitoyl-sphingosine,eval=FALSE}
-
-sampmeta_filtered<-left_join(data.frame(SAMPLE.NAME=colnames(metabFiltered)),sampmeta, by = "SAMPLE.NAME")
-
-mycateg_filtered=gsub("_.*","",sampmeta_filtered$CLIENT.IDENTIFIER)
-
-mdm2loTreatedRG1_groups = c("863RG1","815RG1")
-mdm2hiTreatedRG1_groups = c("246RG1")
-
-mdm2hiTreatedRG1_filtered = getind(subcateg=mdm2hiTreatedRG1_groups,allcateg=mycateg_filtered)
-mdm2loTreatedRG1_filtered = getind(subcateg=mdm2loTreatedRG1_groups,allcateg=mycateg_filtered)
-
-mdm2lo_groups=c("863","815","224B")
-mdm2hi_groups=c("224","246","141")
-all_groups=c(mdm2hi_groups,mdm2lo_groups)
-
-mdm2lo_filtered=getind(subcateg=mdm2lo_groups,allcateg=mycateg_filtered)
-mdm2hi_filtered=getind(subcateg=mdm2hi_groups,allcateg=mycateg_filtered)
-
-mdm2lotreated_groups <- c("863RG5","815RG5")
-mdm2hitreated_groups <- c("246RG5","141RG5")
-
-mdm2loTreated_filtered=getind(subcateg=mdm2lotreated_groups,allcateg=mycateg_filtered)
-mdm2hiTreated_filtered=getind(subcateg=mdm2hitreated_groups,allcateg=mycateg_filtered)
-
-mystatus_filtered=sapply(as.vector(sampmeta_filtered$MANIFEST.ID),function(x) if(x %in% mdm2hi_groups){return("MDM2Hi")}
-                else if(x %in% mdm2hitreated_groups){return("MDM2HiRG5")}
-                else if(x %in% mdm2lo_groups){return("MDM2Lo")}
-                else if(x %in% mdm2lotreated_groups){return("MDM2LoRG5")}
-                else if(x %in% mdm2hiTreatedRG1_groups){return("MDM2HiRG1")}
-                else if(x %in% mdm2loTreatedRG1_groups){return("MDM2LoRG1")})
-
-boxplotter <- function(analyte="glycosyl-N-palmitoyl-sphingosine",group1,group2){
-    analyteInd <- match(analyte, rownames(metabFiltered))
-    BPdf <- data.frame(categ = names(mystatus_filtered)[c(group1,group2)],
-                       value = t(metabFiltered[analyteInd, c(group1,group2)]),
-                       status = factor(mystatus_filtered[c(group1,group2)],
-                                       levels=unique(mystatus_filtered[c(group1,group2)])))
-    colnames(BPdf) <- c("categ", "log2Abundance","status")
-    
-    p <- ggplot(BPdf, aes(x = categ, y = log2Abundance)) +
-        geom_jitter(width = 0.125, size = 3) +
-        scale_color_brewer(type="seq",palette="Set2") +
-        facet_grid(.~status,scales="free") +
-        geom_boxplot(aes(x=status,y=log2Abundance),alpha=0.25,fill="gray40") +
-        scale_fill_manual(values=mycol) +
-        theme_bw() +
-        ggtitle(analyte) +
-        theme(legend.position = "none",axis.title.x=element_blank(), panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(), text = element_text(size=18),
-              axis.text.x = element_text(angle=45,hjust=1))
-    return(p)
-}
-
-boxplotter("glycosyl-N-palmitoyl-sphingosine",mdm2lo_filtered,mdm2hi_filtered)
-boxplotter("glycosyl-N-palmitoyl-sphingosine",mdm2hi_filtered,c(mdm2hiTreatedRG1_filtered,mdm2hiTreated_filtered))
-boxplotter("glycosyl-N-palmitoyl-sphingosine",mdm2lo_filtered,c(mdm2loTreatedRG1_filtered,mdm2loTreated_filtered))
-
-boxplotter("glycosyl-N-palmitoyl-sphingosine",mdm2hi_filtered,mdm2loTreated_filtered)
-boxplotter("glycosyl-N-stearoyl-sphingosine",mdm2hi_filtered,mdm2loTreated_filtered)
-boxplotter("N-palmitoyl-sphingosine (d18:1/16:0)",mdm2hi_filtered,mdm2loTreated_filtered)
-boxplotter("N-palmitoyl-sphingosine (d18:1/16:0)",mdm2lo_filtered,mdm2loTreated_filtered)
-```
-
 ## Treated Hi vs Treated Lo
 
 ```{r,fig.height=6,eval=TRUE}
@@ -466,16 +405,6 @@ mdm2TreHiLoLMME = mdm2TreHiLoLMME %>%
                         "Not Significant"))
 
 mdm2TreHiLoLMME$name = rownames(metabFiltered)
-
- ## myPalette<-c("#e6194b",
- ##             "#8B008B",
- ##             "forestgreen",
- ##             "#808080",
- ##             "#f58231",
- ##             "gray80",
- ##             "#008080",
- ##             "#46f0f0",
- ##             "#3cb44b")
 
 p<-ggplot(data=mdm2TreHiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     geom_point(aes(size=size,text=name)) +
@@ -583,17 +512,13 @@ categ = c(mdm2_low_treated_cells,mdm2_low_untreated_cells_no224B)
 status = c(rep("Low_treated",length(mdm2_low_treated_samps)),
            rep("Low",length(mdm2_low_untreated_samps_no224B)))
 
-##if(!exists("mdm2LoTreLMME")){
+if(!exists("mdm2LoTreLMME")){
   mdm2LoTreLMME<-t(sapply(c(1:nrow(metabFiltered)), function(x){
       df=data.frame(t(metabFiltered[x, mysamps]),categ,status)
       colnames(df)[1]="y"
       fit.null<-lmer(y ~ (1|categ), data = df,REML=FALSE)
       fit<-lmer(y ~ status + (1|categ), data = df,REML=FALSE)
       anovaFit<-anova(fit.null,fit)
-      if(x %% 10 ==0){
-          #print(x)
-          #print(anovaFit$'Pr(>Chisq)'[2])
-      }
       log2fc = mean(as.matrix(metabFiltered[x,mdm2_low_treated_samps])) - mean(as.matrix(metabFiltered[x,mdm2lo]))
       return(c(anovaFit$'Pr(>Chisq)'[2],log2fc))
   }))
@@ -604,28 +529,14 @@ status = c(rep("Low_treated",length(mdm2_low_treated_samps)),
   mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
   mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
   mdm2LoTreLMME$name = rownames(metabFiltered)
-##}
+}
 hist(mdm2LoTreLMME$mypadj,breaks=100)
 
-##mdm2LoTreLMME$class = metabmeta$SUPER.PATHWAY[match(rownames(metabFiltered),metabmeta$BIOCHEMICAL)]
 
 mdm2LoTreLMME = mdm2LoTreLMME %>%
     mutate(class=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,
                         as.character(metabmeta$SUPER.PATHWAY[match(name,metabmeta$BIOCHEMICAL)]),
                         "Not Significant"))
-##myPalette<-c("#e6194b","#8B008B","#808080","#f58231","#008080","#46f0f0","gray80","#3cb44b")
-
-## myPalette<-c(
-##     "#8B008B",
-##     "royalblue",
-##     "#f58231",
-##     "gray80",
-##     "#808080",
-##     "#e6194b",
-##     "#008080",
-##     "#46f0f0",
-##     "#3cb44b")
-
 
 p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     geom_point(aes(size=size,text=name)) +
@@ -649,6 +560,7 @@ p
 ##write.csv(mdm2LoTreLMME %>% dplyr::select(name,class,log2fc,myp,mypadj), file="~/Desktop/LMME_metab.csv")
 
 ```
+### Fig 2D
 
 ```{r}
 mdm2Lo_Treated_vs_UntreatedSig <- mdm2LoTreLMME %>% filter(class!="Not Significant")
@@ -666,6 +578,61 @@ fig2D <- ggplot(mdm2Lo_Treated_vs_UntreatedSig,aes(x=reorder(name,log2fc), y=log
 fig2D
 
 ```
+
+## Treated vs Untreated
+
+```{r,fig.height=6,eval=FALSE}
+mysamps = c(mdm2_high_treated_samps,mdm2_low_treated_samps,mdm2hi,mdm2lo)
+  categ = c(mycateg[mdm2hiTreated],mycateg[mdm2loTreated],mycateg[mdm2hi],mycateg[mdm2lo])
+  status = c(rep("Treated",length(mdm2_high_treated_samps)+length(mdm2_low_treated_samps)),rep("Untreated",length(mdm2lo)+length(mdm2lo)))
+if(!exists("mdm2TrevsUntre")){
+  mdm2TrevsUntre<-t(sapply(c(1:nrow(metabFiltered)), function(x){
+      df=data.frame(t(metabFiltered[x, mysamps]),categ,status)
+      colnames(df)[1]="y"
+      fit.null<-lmer(y ~ (1|categ), data = df,REML=FALSE)
+      fit<-lmer(y ~ status + (1|categ), data = df,REML=FALSE)
+      anovaFit<-anova(fit.null,fit)
+      if(x %% 10 ==0){
+          #print(x)
+          #print(anovaFit$'Pr(>Chisq)'[2])
+      }
+      log2fc = mean(as.matrix(metabFiltered[x,mdm2_low_treated_samps])) - mean(as.matrix(metabFiltered[x,mdm2lo]))
+      return(c(anovaFit$'Pr(>Chisq)'[2],log2fc))
+  }))
+
+  mdm2TrevsUntreLMME <- as.data.frame(mdm2TrevsUntre)
+  colnames(mdm2TrevsUntreLMME)<-c("myp","log2fc")
+  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
+  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
+  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
+}
+hist(mdm2TrevsUntreLMME[,1],breaks=100)
+
+##mdm2TrevsUntreLMME$class = metabmeta$SUPER.PATHWAY[match(rownames(metabFiltered),metabmeta$BIOCHEMICAL)]
+mdm2TrevsUntreLMME$class = "Not Significant"
+mdm2TrevsUntreLMME$name = rownames(metabFiltered)
+
+p<-ggplot(data=mdm2TrevsUntreLMME, aes(x=log2fc, y=-log10(mypadj))) +
+    geom_point(aes(size=size,text=name),colour="gray80") +
+    theme_bw() +
+    ##scale_color_manual(values = myPalette) +
+    ggtitle("Treated vs Untreated") +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    ylab("-log10 p-value") +
+    xlab("log2(Treated)-log2(Untreated)") +
+    geom_hline(yintercept = -log10(0.05),lty = 2) +
+    geom_vline(xintercept = 0.75, lty = 2) +
+    geom_vline(xintercept = -0.75, lty = 2) +
+    scale_alpha(range=c(0.2,0.7)) +
+    scale_size(range=c(2,4)) +
+    guides(size=FALSE,alpha=FALSE,label=FALSE,colour=FALSE)
+##ggplotly(p)
+p
+
+```
+
+# Post-hoc Analyses
 
 ## Hierarchical clustering
 ```{r,eval=FALSE}
@@ -754,58 +721,71 @@ heatmap.2(metab_hclust, scale = "none", col = bluered(100),
 
 ```
 
-## Treated vs Untreated
+## Trends for Glycosyl-N-Palmitoyl-Sphingosine
+```{r, glycosyl-n-palmitoyl-sphingosine,eval=FALSE}
 
-```{r,fig.height=6,eval=FALSE}
-mysamps = c(mdm2_high_treated_samps,mdm2_low_treated_samps,mdm2hi,mdm2lo)
-  categ = c(mycateg[mdm2hiTreated],mycateg[mdm2loTreated],mycateg[mdm2hi],mycateg[mdm2lo])
-  status = c(rep("Treated",length(mdm2_high_treated_samps)+length(mdm2_low_treated_samps)),rep("Untreated",length(mdm2lo)+length(mdm2lo)))
-if(!exists("mdm2TrevsUntre")){
-  mdm2TrevsUntre<-t(sapply(c(1:nrow(metabFiltered)), function(x){
-      df=data.frame(t(metabFiltered[x, mysamps]),categ,status)
-      colnames(df)[1]="y"
-      fit.null<-lmer(y ~ (1|categ), data = df,REML=FALSE)
-      fit<-lmer(y ~ status + (1|categ), data = df,REML=FALSE)
-      anovaFit<-anova(fit.null,fit)
-      if(x %% 10 ==0){
-          #print(x)
-          #print(anovaFit$'Pr(>Chisq)'[2])
-      }
-      log2fc = mean(as.matrix(metabFiltered[x,mdm2_low_treated_samps])) - mean(as.matrix(metabFiltered[x,mdm2lo]))
-      return(c(anovaFit$'Pr(>Chisq)'[2],log2fc))
-  }))
+sampmeta_filtered<-left_join(data.frame(SAMPLE.NAME=colnames(metabFiltered)),sampmeta, by = "SAMPLE.NAME")
 
-  mdm2TrevsUntreLMME <- as.data.frame(mdm2TrevsUntre)
-  colnames(mdm2TrevsUntreLMME)<-c("myp","log2fc")
-  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
-  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
-  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
+mycateg_filtered=gsub("_.*","",sampmeta_filtered$CLIENT.IDENTIFIER)
+
+mdm2loTreatedRG1_groups = c("863RG1","815RG1")
+mdm2hiTreatedRG1_groups = c("246RG1")
+
+mdm2hiTreatedRG1_filtered = getind(subcateg=mdm2hiTreatedRG1_groups,allcateg=mycateg_filtered)
+mdm2loTreatedRG1_filtered = getind(subcateg=mdm2loTreatedRG1_groups,allcateg=mycateg_filtered)
+
+mdm2lo_groups=c("863","815","224B")
+mdm2hi_groups=c("224","246","141")
+all_groups=c(mdm2hi_groups,mdm2lo_groups)
+
+mdm2lo_filtered=getind(subcateg=mdm2lo_groups,allcateg=mycateg_filtered)
+mdm2hi_filtered=getind(subcateg=mdm2hi_groups,allcateg=mycateg_filtered)
+
+mdm2lotreated_groups <- c("863RG5","815RG5")
+mdm2hitreated_groups <- c("246RG5","141RG5")
+
+mdm2loTreated_filtered=getind(subcateg=mdm2lotreated_groups,allcateg=mycateg_filtered)
+mdm2hiTreated_filtered=getind(subcateg=mdm2hitreated_groups,allcateg=mycateg_filtered)
+
+mystatus_filtered=sapply(as.vector(sampmeta_filtered$MANIFEST.ID),function(x) if(x %in% mdm2hi_groups){return("MDM2Hi")}
+                else if(x %in% mdm2hitreated_groups){return("MDM2HiRG5")}
+                else if(x %in% mdm2lo_groups){return("MDM2Lo")}
+                else if(x %in% mdm2lotreated_groups){return("MDM2LoRG5")}
+                else if(x %in% mdm2hiTreatedRG1_groups){return("MDM2HiRG1")}
+                else if(x %in% mdm2loTreatedRG1_groups){return("MDM2LoRG1")})
+
+boxplotter <- function(analyte="glycosyl-N-palmitoyl-sphingosine",group1,group2){
+    analyteInd <- match(analyte, rownames(metabFiltered))
+    BPdf <- data.frame(categ = names(mystatus_filtered)[c(group1,group2)],
+                       value = t(metabFiltered[analyteInd, c(group1,group2)]),
+                       status = factor(mystatus_filtered[c(group1,group2)],
+                                       levels=unique(mystatus_filtered[c(group1,group2)])))
+    colnames(BPdf) <- c("categ", "log2Abundance","status")
+    
+    p <- ggplot(BPdf, aes(x = categ, y = log2Abundance)) +
+        geom_jitter(width = 0.125, size = 3) +
+        scale_color_brewer(type="seq",palette="Set2") +
+        facet_grid(.~status,scales="free") +
+        geom_boxplot(aes(x=status,y=log2Abundance),alpha=0.25,fill="gray40") +
+        scale_fill_manual(values=mycol) +
+        theme_bw() +
+        ggtitle(analyte) +
+        theme(legend.position = "none",axis.title.x=element_blank(), panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(), text = element_text(size=18),
+              axis.text.x = element_text(angle=45,hjust=1))
+    return(p)
 }
-hist(mdm2TrevsUntreLMME[,1],breaks=100)
 
-##mdm2TrevsUntreLMME$class = metabmeta$SUPER.PATHWAY[match(rownames(metabFiltered),metabmeta$BIOCHEMICAL)]
-mdm2TrevsUntreLMME$class = "Not Significant"
-mdm2TrevsUntreLMME$name = rownames(metabFiltered)
+boxplotter("glycosyl-N-palmitoyl-sphingosine",mdm2lo_filtered,mdm2hi_filtered)
+boxplotter("glycosyl-N-palmitoyl-sphingosine",mdm2hi_filtered,c(mdm2hiTreatedRG1_filtered,mdm2hiTreated_filtered))
+boxplotter("glycosyl-N-palmitoyl-sphingosine",mdm2lo_filtered,c(mdm2loTreatedRG1_filtered,mdm2loTreated_filtered))
 
-p<-ggplot(data=mdm2TrevsUntreLMME, aes(x=log2fc, y=-log10(mypadj))) +
-    geom_point(aes(size=size,text=name),colour="gray80") +
-    theme_bw() +
-    ##scale_color_manual(values = myPalette) +
-    ggtitle("Treated vs Untreated") +
-    theme(plot.title = element_text(hjust = 0.5)) +
-    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-    ylab("-log10 p-value") +
-    xlab("log2(Treated)-log2(Untreated)") +
-    geom_hline(yintercept = -log10(0.05),lty = 2) +
-    geom_vline(xintercept = 0.75, lty = 2) +
-    geom_vline(xintercept = -0.75, lty = 2) +
-    scale_alpha(range=c(0.2,0.7)) +
-    scale_size(range=c(2,4)) +
-    guides(size=FALSE,alpha=FALSE,label=FALSE,colour=FALSE)
-##ggplotly(p)
-p
-
+boxplotter("glycosyl-N-palmitoyl-sphingosine",mdm2hi_filtered,mdm2loTreated_filtered)
+boxplotter("glycosyl-N-stearoyl-sphingosine",mdm2hi_filtered,mdm2loTreated_filtered)
+boxplotter("N-palmitoyl-sphingosine (d18:1/16:0)",mdm2hi_filtered,mdm2loTreated_filtered)
+boxplotter("N-palmitoyl-sphingosine (d18:1/16:0)",mdm2lo_filtered,mdm2loTreated_filtered)
 ```
+# Save final dataframe and metadata
 
 ```{r, Save final dataframe and metadata,echo=FALSE,eval=FALSE}
 saveRDS(metabFiltered,"~/Desktop/Liposarcoma project/final_dataframes_and_metadata/metab_data.rds")
