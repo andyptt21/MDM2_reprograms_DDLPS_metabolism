@@ -31,6 +31,36 @@ table(newsampmeta$MANIFEST.ID)
 
 newsampmeta[which(newsampmeta$MANIFEST.ID=="224B"),]
 
+newsampmeta <- newsampmeta[-c(12,13,14),] # removing duplicate lines
+table(newsampmeta$MANIFEST.ID)
+
+finalsampmeta <- newsampmeta[,c("SAMPLE.NAME", "CLIENT.IDENTIFIER","MANIFEST.ID")]
+
+temp <- as.character(finalsampmeta$MANIFEST.ID)
+temp[grep("RG5",finalsampmeta$MANIFEST.ID)] = "Treated"
+temp[which(temp!="Treated")]="Untreated"
+finalsampmeta$Treated_status <- as.factor(temp)
+
+finalsampmeta$Cell <- as.factor(gsub("RG5","",gsub("_.*","",finalsampmeta$CLIENT.IDENTIFIER)))
+
+temp <- as.character(finalsampmeta$Cell)
+temp[which(finalsampmeta$Cell=="141")]="High"
+temp[which(finalsampmeta$Cell=="224")]="High"
+temp[which(finalsampmeta$Cell=="224B")]="Low"
+temp[which(finalsampmeta$Cell=="246")]="High"
+temp[which(finalsampmeta$Cell=="815")]="Low"
+temp[which(finalsampmeta$Cell=="863")]="Low"
+finalsampmeta$MDM2_status=as.factor(temp)
+
+summary(finalsampmeta)
+
+finalmetab <- metab[,finalsampmeta$SAMPLE.NAME]
+
+metab <- finalmetab
+sampmeta <- finalsampmeta
+
+save(metab,sampmeta,metabmeta,file="NewSarcomaLines.Rdata")
+
 ```
 
 Why are there duplicate entries for the 3 cell lines?  The numbers don't match what is in Table 1 for 224B.  Is it OK to remove them?
