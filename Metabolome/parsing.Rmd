@@ -1,0 +1,37 @@
+---
+title: Reparsing SarcomaLines.Rdata to only include samples used in the publication
+author: "Ewy"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+    theme: cerulean
+    highlight: tango
+---
+
+```{r}
+load("SarcomaLines.Rdata")
+
+#columns MANIFEST.ID and Group are equal so remove Group:
+sampmeta <- sampmeta[,-which(colnames(sampmeta) %in% "Group")]
+
+mysamps <- c("141", "224", "224B","246","815","863")
+
+ind<-c()
+for (i in mysamps) {
+	ind <- c(ind, grep(i,sampmeta$MANIFEST.ID))
+}
+
+
+newsampmeta <- sampmeta[ind[!grepl("RG1",sampmeta$MANIFEST.ID[ind])],]
+newsampmeta <- as.data.frame(lapply(newsampmeta, function(x) if(is.factor(x)) factor(x) else x))
+table(newsampmeta$MANIFEST.ID)
+
+newsampmeta[which(newsampmeta$MANIFEST.ID=="224B"),]
+
+```
+
+Why are there duplicate entries for the 3 cell lines?  The numbers don't match what is in Table 1 for 224B.  Is it OK to remove them?
+

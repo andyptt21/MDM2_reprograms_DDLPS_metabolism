@@ -52,17 +52,15 @@ if(!require("raster")){
 if(!require("RaMP")){
   install.packages("devtools")
   library(devtools)
-  install_github("mathelab/RAMP-DB")
+  ##**  install_github("mathelab/RAMP-DB")
+  install_github("ncats/RAMP-DB@v.1.1.0")
 }
 ```
 
 # Load data and metadata, and define statistical groups
 
 ```{r}
-##rm(list=ls())
-
-load("~/Desktop/Liposarcoma project/SarcomaLines.Rdata")
-##load("~/Desktop/Liposarcoma project/final_figures/final_figures_org_file/figureS1D.Rda")
+load("SarcomaLines.Rdata")
 mycateg=gsub("_.*","",sampmeta$CLIENT.IDENTIFIER)
 mycol=c("red","blue")
 
