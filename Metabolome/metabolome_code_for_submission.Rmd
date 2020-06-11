@@ -60,6 +60,7 @@ if(!require("RaMP")){
 # Load data and metadata, and define statistical groups
 
 ```{r}
+rm(list=ls())
 load("NewSarcomaLines.Rdata")
 mycateg=gsub("_.*","",sample_table$CLIENT.IDENTIFIER)
 
@@ -124,17 +125,6 @@ mystatus=sapply(mycell,function(x) if(x %in% mdm2hi_groups){return("MDM2Hi")}
 mysamps <- c(which(as.vector(mystatus)=="MDM2Hi"),which(as.vector(mystatus)=="MDM2Lo"))
 mycell=mycell[mysamps]
 mystatus <- mystatus[mysamps]
-
-## sample_table<-sampmeta %>%
-##     filter(SAMPLE.NAME %in% colnames(metabFiltered)) %>%
-##     dplyr::select(SAMPLE.NAME,CLIENT.IDENTIFIER) %>%
-##     mutate(Cell=gsub("_.*","",CLIENT.IDENTIFIER)) %>%
-##     mutate(MDM2_status=ifelse(Cell %in% mdm2hi_groups | Cell %in% mdm2hitreated_groups,
-##             "High",
-##             "Low")) %>%
-##     mutate(Treatment_status=ifelse(grepl("RG5",CLIENT.IDENTIFIER),
-##                                    "Treated",
-##                                    "Untreated"))
 
 ```
 
@@ -211,8 +201,8 @@ for cell line effects.
 
 ## MDM2 Higher  vs Lower, Untreated
 ```{r}
-##categ = names(mystatus)[mysamps]
-##status = mystatus[mysamps]
+pval_thresh <- 0.1
+
 mdm2_high_untreated_samps<-sample_table %>%
     filter(MDM2_status=="High" & Treatment_status=="Untreated") %>%
     dplyr::select(SAMPLE.NAME) %>%
@@ -252,9 +242,9 @@ if(!exists("mdm2HiLoLMME")){
     mdm2HiLoLMME <- as.data.frame(t(mdm2HiLoLMME))
     colnames(mdm2HiLoLMME)<-c("myp","log2fc")
     mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
-    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
-    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
-    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(sig0.05=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,TRUE,FALSE))
+    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
+    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
+    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(sig0.05=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,TRUE,FALSE))
     mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(sig0.1=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,TRUE,FALSE))
 }
 hist(mdm2HiLoLMME$mypadj,breaks=100,main="Adjusted p value distribution of MDM2 higher vs lower comparison")
@@ -262,12 +252,12 @@ hist(mdm2HiLoLMME$mypadj,breaks=100,main="Adjusted p value distribution of MDM2 
 mdm2HiLoLMME$name = rownames(metabFiltered)
 
 resMDM2HiLoLMME = mdm2HiLoLMME %>%
-     mutate(class=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,
+     mutate(class=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,
                          as.character(metabmeta$SUPER.PATHWAY)[match(name,metabmeta$BIOCHEMICAL)],                         
                          "Not Significant"))
 
 ##myPalette<-c("#e6194b","#8B008B","#808080","#f58231","gray80","#008080","#46f0f0","mediumblue")
-
+write.csv(resMDM2HiLoLMME,"~/Desktop/temp.csv")
 p<-ggplot(data=resMDM2HiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     geom_point(aes(size=size,text=name)) +
     theme_bw() +
@@ -278,7 +268,7 @@ p<-ggplot(data=resMDM2HiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
     ylab("-log10 p-value") +
     xlab("log2(MDM2Hi)/log2(MDM2Lo)") +
-    geom_hline(yintercept = -log10(0.05),lty = 2) +
+    geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
     scale_alpha(range=c(0.2,0.7)) +
@@ -392,13 +382,13 @@ if(!exists("mdm2TreHiLoLMME")){
     mdm2TreHiLoLMME <- as.data.frame(mdm2TreHiLoLMME)
     colnames(mdm2TreHiLoLMME)<-c("myp","log2fc")
     mdm2TreHiLoLMME <- mdm2TreHiLoLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
-    mdm2TreHiLoLMME <- mdm2TreHiLoLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
-    mdm2TreHiLoLMME <- mdm2TreHiLoLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
+    mdm2TreHiLoLMME <- mdm2TreHiLoLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
+    mdm2TreHiLoLMME <- mdm2TreHiLoLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
 }
 hist(mdm2TreHiLoLMME[,1],breaks=100)
 
 mdm2TreHiLoLMME = mdm2TreHiLoLMME %>%
-    mutate(class=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,
+    mutate(class=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,
                         as.character(metabmeta$SUPER.PATHWAY[match(rownames(metabFiltered),metabmeta$BIOCHEMICAL)]),
                         "Not Significant"))
 
@@ -412,7 +402,7 @@ p<-ggplot(data=mdm2TreHiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     theme(plot.title = element_text(hjust = 0.5)) +
     ylab("-log10 p-value") +
     xlab("log2(MDM2Hi Treated)/log2(MDM2Lo Treated)") +
-    geom_hline(yintercept = -log10(0.05),lty = 2) +
+    geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
     scale_alpha(range=c(0.2,0.7)) +
@@ -460,16 +450,20 @@ if(!exists("mdm2HiTreLMME")){
   mdm2HiTreLMME <- as.data.frame(mdm2HiTreLMME)
   colnames(mdm2HiTreLMME)<-c("myp","log2fc")
   mdm2HiTreLMME <- mdm2HiTreLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
-  mdm2HiTreLMME <- mdm2HiTreLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
-  mdm2HiTreLMME <- mdm2HiTreLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
+  mdm2HiTreLMME <- mdm2HiTreLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
+  mdm2HiTreLMME <- mdm2HiTreLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
 }
   hist(mdm2HiTreLMME[,1],breaks=100)
 
-mdm2HiTreLMME$class = metabmeta$SUPER.PATHWAY[match(rownames(metabFiltered),metabmeta$BIOCHEMICAL)]
 mdm2HiTreLMME$name = rownames(metabFiltered)
 
-  p<-ggplot(data=mdm2HiTreLMME, aes(x=log2fc, y=-log10(mypadj))) +
-      geom_point(aes(size=size,text=name),color="gray80") +
+mdm2HiTreLMME = mdm2HiTreLMME %>%
+    mutate(class=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,
+                        as.character(metabmeta$SUPER.PATHWAY[match(rownames(metabFiltered),metabmeta$BIOCHEMICAL)]),
+                        "Not Significant"))
+
+  p<-ggplot(data=mdm2HiTreLMME, aes(x=log2fc, y=-log10(mypadj),color=class)) +
+      geom_point(aes(size=size,text=name)) +
       theme_bw() +
       scale_color_manual(values = myPalette) +
       ggtitle("Treated vs Untreated, MDM2 High only") +
@@ -477,7 +471,7 @@ mdm2HiTreLMME$name = rownames(metabFiltered)
       theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
       ylab("-log10 p-value") +
       xlab("log2(MDM2Hi Treated)-log2(MDM2Hi)") +
-      geom_hline(yintercept = -log10(0.05),lty = 2) +
+      #geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
       geom_vline(xintercept = 0.75, lty = 2) +
       geom_vline(xintercept = -0.75, lty = 2) +
       scale_alpha(range=c(0.2,0.7)) +
@@ -495,14 +489,14 @@ Next comparing 815 and 863 treated and untreated (224B is filtered out since the
 
 ```{r,fig.height=6}
 mdm2_low_untreated_samps_no224B<-sample_table %>%
-    ##filter(MDM2_status=="Low" & Treatment_status=="Untreated" & Cell != "224B") %>%
     filter(MDM2_status=="Low" & Treatment_status=="Untreated") %>%
+    filter(Cell != "224B") %>%
     dplyr::select(SAMPLE.NAME) %>%
     as.matrix() %>%
     as.vector()
 mdm2_low_untreated_cells_no224B<-sample_table %>%
-    ##filter(MDM2_status=="Low" & Treatment_status=="Untreated" & Cell != "224B") %>%
     filter(MDM2_status=="Low" & Treatment_status=="Untreated") %>%
+    filter(Cell != "224B") %>%
     dplyr::select(Cell) %>%
     as.matrix() %>%
     as.vector()
@@ -526,17 +520,16 @@ if(!exists("mdm2LoTreLMME")){
   mdm2LoTreLMME <- as.data.frame(mdm2LoTreLMME)
   colnames(mdm2LoTreLMME)<-c("myp","log2fc")
   mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
-  mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(alpha=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,0.05,0.025))
-  mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(size=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,4,2))
+  mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
+  mdm2LoTreLMME <- mdm2LoTreLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
   mdm2LoTreLMME$name = rownames(metabFiltered)
 }
 hist(mdm2LoTreLMME$myp,breaks=100)
 
 mdm2LoTreLMME = mdm2LoTreLMME %>%
-    mutate(class=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,
+    mutate(class=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,
                         as.character(metabmeta$SUPER.PATHWAY[match(name,metabmeta$BIOCHEMICAL)]),
                         "Not Significant"))
-write.csv(mdm2LoTreLMME,"~/Desktop/temp.csv")
 p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(myp), colour=class)) +
     geom_point(aes(size=size,text=name)) +
     theme_bw() +
@@ -546,7 +539,7 @@ p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(myp), colour=class)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
     ylab("-log10 p-value") +
     xlab("log2(MDM2Lo Treated - MDM2Lo)") +
-    ##geom_hline(yintercept = -log10(0.1),lty = 2) +
+    ##geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
     scale_alpha(range=c(0.2,0.7)) +
@@ -602,8 +595,8 @@ if(!exists("mdm2TrevsUntre")){
   mdm2TrevsUntreLMME <- as.data.frame(mdm2TrevsUntre)
   colnames(mdm2TrevsUntreLMME)<-c("myp","log2fc")
   mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
-  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(alpha=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,0.05,0.025))
-  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(size=ifelse(mypadj<0.05 & abs(log2fc) > 0.75,4,2))
+  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
+  mdm2TrevsUntreLMME <- mdm2TrevsUntreLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
 }
 hist(mdm2TrevsUntreLMME[,1],breaks=100)
 
@@ -620,7 +613,7 @@ p<-ggplot(data=mdm2TrevsUntreLMME, aes(x=log2fc, y=-log10(mypadj))) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
     ylab("-log10 p-value") +
     xlab("log2(Treated)-log2(Untreated)") +
-    geom_hline(yintercept = -log10(0.05),lty = 2) +
+    geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
     scale_alpha(range=c(0.2,0.7)) +
@@ -634,7 +627,7 @@ p
 # Post-hoc Analyses
 
 ## Hierarchical clustering
-```{r,eval=FALSE}
+```{r,eval=TRUE}
 metabs_of_interest<-resMDM2HiLoLMME %>%
     filter(class!="Not Significant") %>%
     dplyr::select(name) %>%
@@ -642,81 +635,34 @@ metabs_of_interest<-resMDM2HiLoLMME %>%
     ##t() %>%
     as.vector()
 
-metabs_of_interest<-unique(c("adenine",metabs_of_interest,as.matrix(mdm2Lo_Treated_vs_UntreatedSig$name)))
+metabs_of_interest<-unique(c(metabs_of_interest,as.matrix(mdm2Lo_Treated_vs_UntreatedSig$name)))
+## metabs_of_interest<-as.matrix(mdm2Lo_Treated_vs_UntreatedSig$name)
 
-
-
-
-metab_hclust <- metabFiltered_withRG1[metabs_of_interest,
-                              c(which(mystatus_filtered=="MDM2Hi"),
-                         which(mystatus_filtered=="MDM2Lo"),
-                         which(mystatus_filtered=="MDM2HiRG5"),
-                         which(mystatus_filtered=="MDM2LoRG5"))]
-labels <- sampmeta_filtered %>%
+metab_hclust <- metabFiltered[metabs_of_interest,
+                              c(mdm2_high_untreated_samps,
+                                mdm2_low_untreated_samps,
+                                mdm2_high_treated_samps,
+                                mdm2_low_treated_samps)]
+labels <- sample_table %>%
     filter(SAMPLE.NAME %in% colnames(metab_hclust)) %>%
-    dplyr::select(Group)
+    dplyr::select(Cell)
 
 labels <- make.names(as.vector(t(as.matrix(labels))),unique=T)
 labels=gsub("X","",labels)
-
-
 
 library(gplots)
-heatmap.2(as.matrix(metab_hclust), scale = "none", col = colorRampPalette(c("blue", "white","red"))(100), 
+heatmap.2(as.matrix(metab_hclust), scale = "none",
+          col = colorRampPalette(c("blue", "white","red"))(100), 
           trace = "none", density.info = "none",
           margins = c(5, 15),
-          ColSideColors = c(rep("red", 13), rep("blue", 13),
-                            rep("orange", 6),
-                            rep("green", 6)),
-          RowSideColors = c("yellow",rep("forestgreen",17),rep("purple",17)),
-          labRow=rownames(metab_hclust),
-          labCol=labels,
-          Rowv=FALSE)
-
-metabs_of_interest_filtered<-c("glycosyl-N-palmitoyl-sphingosine",
-                               "ornithine",
-                               ##"4-hydroxyglutamate",
-                               ##"palmitoylcholine",
-                               "adenine",
-                               "1,2-dioleoyl-GPC (18:1/18:1)*",      
-                               "1-stearoyl-2-arachidonoyl-GPE (18:0/20:4)",
-                               "1-stearoyl-2-oleoyl-GPE (18:0/18:1)",
-                               "glutamate",
-                               "myristate")
-
-metab_hclust <- metabFiltered_withRG1[metabs_of_interest_filtered,
-                              c(which(mystatus_filtered=="MDM2Hi"),
-                         which(mystatus_filtered=="MDM2Lo"),
-                         which(mystatus_filtered=="MDM2HiRG5"),
-                         which(mystatus_filtered=="MDM2LoRG5"))]
-labels <- sampmeta_filtered %>%
-    filter(SAMPLE.NAME %in% colnames(metab_hclust)) %>%
-    dplyr::select(Group)
-
-labels <- make.names(as.vector(t(as.matrix(labels))),unique=T)
-labels=gsub("X","",labels)
-
-heatmap.2(as.matrix(metab_hclust), scale = "none", col = colorRampPalette(c("blue", "white","red"))(100), 
-          trace = "none", density.info = "none",
-          margins = c(5, 15),
-          ColSideColors = c(rep("red", 13), rep("blue", 13),
-                            rep("orange", 6),
-                            rep("green", 6)),
+          ColSideColors = c(rep("red", length(mdm2_high_untreated_samps)),
+                            rep("blue", length(mdm2_low_untreated_samps)),
+                            rep("orange", length(mdm2_high_treated_samps)),
+                            rep("green", length(mdm2_low_treated_samps))),
           #RowSideColors = c("yellow",rep("forestgreen",17),rep("purple",17)),
           labRow=rownames(metab_hclust),
           labCol=labels,
           Rowv=FALSE)
-
-metab_hclust<-cor(metab_hclust)
-##metab_hclust<-1-metab_hclust
-
-heatmap.2(metab_hclust, scale = "none", col = bluered(100), 
-          trace = "none", density.info = "none",
-          ColSideColors = c(rep("red", 13), rep("blue", 13),
-                            rep("orange", 6),
-                            rep("forestgreen", 6)),
-          labRow=labels,
-          labCol=labels)
 
 ```
 
