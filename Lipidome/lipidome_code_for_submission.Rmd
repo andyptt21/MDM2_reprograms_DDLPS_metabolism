@@ -268,7 +268,7 @@ volcano_plotter <- function(df,title){
             ggtitle(title) +
             theme(plot.title = element_text(hjust = 0.5)) +
             theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-            ylab("-log10 p-value") +
+            ylab("-log10 FDR") +
             geom_hline(yintercept = -log10(p_thresh),lty = 2) +
             geom_vline(xintercept = fc_thresh, lty = 2) +
             geom_vline(xintercept = -fc_thresh, lty = 2) +
@@ -283,7 +283,7 @@ volcano_plotter <- function(df,title){
             ggtitle(title) +
             theme(plot.title = element_text(hjust = 0.5)) +
             theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-            ylab("-log10 p-value") +
+            ylab("-log10 FDR") +
             geom_hline(yintercept = -log10(p_thresh),lty = 2) +
             geom_vline(xintercept = fc_thresh, lty = 2) +
             geom_vline(xintercept = -fc_thresh, lty = 2)

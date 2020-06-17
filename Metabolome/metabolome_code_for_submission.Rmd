@@ -13,7 +13,7 @@ output:
 
 ```{r,echo=FALSE}
 knitr::opts_chunk$set(message=FALSE,warning=FALSE, 
-                      fig.height=6,fig.width = 10,fig.fullwidth = TRUE)
+                      fig.height=6,fig.width = 12,fig.fullwidth = TRUE)
 ##rm(list=ls())
 ```
 The code in this script was used to identify metabolomic differences between MDM2 higher and lower cell lines, as well as differences driven by MDM2 inhibitor treatment. Code for some of the figures in the paper as well as for generating the supplementary data tables is also included.
@@ -264,7 +264,7 @@ p<-ggplot(data=resMDM2HiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     ggtitle("MDM2 Higher vs Lower") +
     theme(plot.title = element_text(hjust = 0.5)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-    ylab("-log10 p-value") +
+    ylab("-log10 FDR") +
     xlab("log2(MDM2Hi)/log2(MDM2Lo)") +
     geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
@@ -317,28 +317,8 @@ plot_grid(
 
 ```
 
-```{r, eval=FALSE}
-mdm2HiLo_Sig <- resMDM2HiLoLMME %>% filter(class!="Not Significant")
 
-p <- ggplot(mdm2HiLo_Sig,aes(x=reorder(name,log2fc), y=log2fc, fill = class)) +
-    ## ggtitle("MDM2 High vs. Low Cells") +
-    geom_bar(stat = "identity", colour = "black") +
-    coord_flip() +
-    theme_bw() +
-    ylab("log2(MDM2 High)/log2(MDM2 Low)") +
-    theme(axis.title.y = element_blank(),
-          axis.title.x = element_text(size=16,face="bold"),
-          axis.text.y=element_text(face="bold",size=18),
-          axis.text.x=element_text(size=10),
-          legend.text=element_text(size=16),
-          legend.title=element_text(size=18)) +
-    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-    scale_fill_manual(values=myPalette)##[c(1,2,8,4,3,6)]) #+
-##theme(legend.position="bottom",legend.direction="vertical")
-p
-```
-
-## Treated Hi vs Treated Lo
+## MDM2 inhibitor treated, MDM2 Higher vs MDM2 inhibitor treated, MDM2 Lower
 
 ```{r,fig.height=6,eval=TRUE}
 
@@ -398,7 +378,7 @@ p<-ggplot(data=mdm2TreHiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     scale_color_manual(values = myPalette) +
     ggtitle("MDM2 higher vs lower (treated)") +
     theme(plot.title = element_text(hjust = 0.5)) +
-    ylab("-log10 p-value") +
+    ylab("-log10 FDR") +
     xlab("log2(MDM2Hi Treated)/log2(MDM2Lo Treated)") +
     geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
@@ -412,7 +392,7 @@ p
 
 ```
 
-## Treated Hi vs Untreated Hi
+## MDM2 inhibitor treated MDM2 Higher vs Untreated MDM2 Higher
 
 ```{r,fig.height=6,eval=TRUE}
 mdm2_high_untreated_samps_no224<-sample_table %>%
@@ -461,26 +441,27 @@ mdm2HiTreLMME = mdm2HiTreLMME %>%
 
   p<-ggplot(data=mdm2HiTreLMME, aes(x=log2fc, y=-log10(mypadj),color=class)) +
       geom_point(aes(size=size,text=name)) +
-      theme_bw() +
+      theme_bw(base_size=20) +
       scale_color_manual(values = myPalette) +
-      ggtitle("Treated vs Untreated, MDM2 High only") +
+      ggtitle("Treated vs Untreated, MDM2 Higher only") +
       theme(plot.title = element_text(hjust = 0.5)) +
       theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-      ylab("-log10 p-value") +
+      ylab("-log10 FDR") +
       xlab("log2(MDM2Hi Treated)-log2(MDM2Hi)") +
       #geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
       geom_vline(xintercept = 0.75, lty = 2) +
       geom_vline(xintercept = -0.75, lty = 2) +
       scale_alpha(range=c(0.2,0.7)) +
       scale_size(range=c(2,4)) +
-      guides(size=FALSE,alpha=FALSE,label=FALSE)
+      guides(size=FALSE,alpha=FALSE,label=FALSE,
+             colour = guide_legend(override.aes = list(size=10)))
 ##ggplotly(p)
 p
 
 ##write.csv(mdm2HiTreLMME %>% dplyr::select(name,class,log2fc,myp,mypadj), file="~/Desktop/LMME_metab.csv")
 ```
 
-## Treated Lo vs Lo
+## MDM2 Inhibitor Treated MDM2 Lower vs Untreated MDM2 Lower
 
 Next comparing 815 and 863 treated and untreated (224B is filtered out since there is no treatment data available for this cell line)
 
@@ -527,21 +508,22 @@ mdm2LoTreLMME = mdm2LoTreLMME %>%
     mutate(class=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,
                         as.character(metabmeta$SUPER.PATHWAY[match(name,metabmeta$BIOCHEMICAL)]),
                         "Not Significant"))
-p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(myp), colour=class)) +
+p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     geom_point(aes(size=size,text=name)) +
-    theme_bw() +
+    theme_bw(base_size=20) +
     scale_color_manual(values = myPalette) +
-    ggtitle("Treated vs Untreated, MDM2 low only") +
+    ggtitle("Treated vs Untreated, MDM2 Lower only") +
     theme(plot.title = element_text(hjust = 0.5)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-    ylab("-log10 p-value") +
+    ylab("-log10 FDR") +
     xlab("log2(MDM2Lo Treated - MDM2Lo)") +
-    ##geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
+    geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
     scale_alpha(range=c(0.2,0.7)) +
     scale_size(range=c(2,4)) +
-    guides(size=FALSE,alpha=FALSE,label=FALSE)
+    guides(size=FALSE,alpha=FALSE,label=FALSE,
+           colour = guide_legend(override.aes = list(size=10)))
 
 ##ggplotly(p)
 p
@@ -614,29 +596,30 @@ heatmap.2(as.matrix(metab_hclust), scale = "none",
 
 ```
 
-## Metabolites that became more "MDM2-high like" post treatment
-```{r, Metabolites that became more MDM2-high like post treatment,fig.width=12,fig.height=8}
+## Figure S2C
+```{r, Figure S2C,fig.width=8,fig.height=8}
 
 boxplotter <- function(analyte="glycosyl-N-palmitoyl-sphingosine",
                        group1=mdm2_low_untreated_samps,
                        name1="MDM2 Lower Untreated",
                        group2=mdm2_low_treated_samps,
-                       name2="MDM2 Lower Treated",
-                       group3=mdm2_high_untreated_samps,
-                       name3="MDM2 Higher Untreated"){
+                       name2="MDM2 Lower Treated"
+                       ## group3=mdm2_high_untreated_samps,
+                       ## name3="MDM2 Higher Untreated"
+                       ){
     analyteInd <- match(analyte, rownames(metabFiltered))
     status <- c(rep(name1,length(group1)),
-                                 rep(name2,length(group2)),
-                                 rep(name3,length(group3))
+                                 rep(name2,length(group2))## ,
+                                 ## rep(name3,length(group3))
                 )
     
     BPdf <- data.frame(categ =
-                           data.frame(SAMPLE.NAME=c(group1,group2,group3)) %>%
+                           data.frame(SAMPLE.NAME=c(group1,group2)) %>%
                            left_join(sample_table,by="SAMPLE.NAME") %>%
                            select(Cell) %>%
                            as.matrix() %>%
                            as.vector(),
-                       value = t(metabFiltered[analyteInd, c(group1,group2,group3)]),
+                       value = t(metabFiltered[analyteInd, c(group1,group2)]),
                        status = factor(status,
                                        levels=unique(status)))
     colnames(BPdf) <- c("categ", "log2Abundance","status")
@@ -671,25 +654,6 @@ plot_grid(plotlist=lapply(mdm2_lo_tre_metabolites,boxplotter),ncol=2)
 # Save final dataframe and metadata
 
 ```{r, Save final dataframe and metadata,echo=FALSE,eval=FALSE}
-saveRDS(metabFiltered,"~/Desktop/Liposarcoma project/final_dataframes_and_metadata/metab_data.rds")
-
-metab_metadata<-list(mdm2hi_filtered,
-                 mdm2lo_filtered,
-                 mdm2hiTreated_filtered,
-                 mdm2loTreated_filtered,
-                 mdm2hiTreatedRG1_filtered,
-                 mdm2loTreatedRG1_filtered,
-                 left_join(data.frame(SAMPLE.NAME=colnames(metabFiltered)),sample_table,by="SAMPLE.NAME") %>% dplyr::select(MANIFEST.ID)
-)
-
-names(metab_metadata)<-c("mdm2hiUntreatedSamps",
-                         "mdm2loUntreatedSamps",
-                         "mdm2hiRG5Samps",
-                         "mdm2loRG5Samps",
-                         "mdm2hiRG1Samps",
-                         "mdm2loRG1Samps",
-                         "cell_lines")
-saveRDS(metab_metadata,"~/Desktop/Liposarcoma project/final_dataframes_and_metadata/metab_metadata.rds")
 
 ```
 
