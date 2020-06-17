@@ -4,3 +4,5 @@
 *.pdf
 /Metabolome/metabolome_code_for_submission_0.05.html
 /Metabolome/metabolome_code_for_submission_0.1.html
+/Lipidome/2018_6_2_remove_duplicates.R
+/Lipidome/parsing.Rmd
