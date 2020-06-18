@@ -242,8 +242,6 @@ if(!exists("mdm2HiLoLMME")){
     mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
     mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
     mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
-    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(sig0.05=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,TRUE,FALSE))
-    mdm2HiLoLMME <- mdm2HiLoLMME %>% mutate(sig0.1=ifelse(mypadj<0.1 & abs(log2fc) > 0.75,TRUE,FALSE))
 }
 hist(mdm2HiLoLMME$mypadj,breaks=100,main="Adjusted p value distribution of MDM2 higher vs lower comparison")
 
@@ -255,7 +253,7 @@ resMDM2HiLoLMME = mdm2HiLoLMME %>%
                          "Not Significant"))
 
 ##myPalette<-c("#e6194b","#8B008B","#808080","#f58231","gray80","#008080","#46f0f0","mediumblue")
-write.csv(resMDM2HiLoLMME,"~/Desktop/temp.csv")
+
 p<-ggplot(data=resMDM2HiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     geom_point(aes(size=size,text=name)) +
     theme_bw() +
@@ -458,7 +456,6 @@ mdm2HiTreLMME = mdm2HiTreLMME %>%
 ##ggplotly(p)
 p
 
-##write.csv(mdm2HiTreLMME %>% dplyr::select(name,class,log2fc,myp,mypadj), file="~/Desktop/LMME_metab.csv")
 ```
 
 ## MDM2 Inhibitor Treated MDM2 Lower vs Untreated MDM2 Lower
@@ -527,8 +524,6 @@ p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
 
 ##ggplotly(p)
 p
-
-##write.csv(mdm2LoTreLMME %>% dplyr::select(name,class,log2fc,myp,mypadj), file="~/Desktop/LMME_metab.csv")
 
 ```
 ### Fig 2A
@@ -651,9 +646,28 @@ plot_grid(plotlist=lapply(mdm2_lo_tre_metabolites,boxplotter),ncol=2)
 
 ```
 
-# Save final dataframe and metadata
+# Save results into supplementary tables
 
-```{r, Save final dataframe and metadata,echo=FALSE,eval=FALSE}
+```{r,eval=FALSE}
+
+process_results<-function(df){
+    df<-df %>%
+        select(-alpha,-size) %>%
+        mutate(class=
+                   as.character(metabmeta$SUPER.PATHWAY[match(name,
+                                                              metabmeta$BIOCHEMICAL)])) %>%
+        mutate(significant=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,TRUE,FALSE))
+    return(df)
+}
+
+write.xlsx(process_results(mdm2HiLoLMME),file="Metabolomic_results.xlsx",
+           sheetName="MDM2 Higher vs Lower, Untreated")
+write.xlsx(process_results(mdm2TreHiLoLMME),file="Metabolomic_results.xlsx",
+           sheetName="MDM2 Higher vs Lower, Treated Cells",append=TRUE)
+write.xlsx(process_results(mdm2LoTreLMME),file="Metabolomic_results.xlsx",
+           sheetName="MDM2 Low Cells Treated vs Untreated",append=TRUE)
+write.xlsx(process_results(mdm2HiTreLMME),file="Metabolomic_results.xlsx",
+           sheetName="MDM2 High Cells Treated vs Untreated",append=TRUE)
 
 ```
 

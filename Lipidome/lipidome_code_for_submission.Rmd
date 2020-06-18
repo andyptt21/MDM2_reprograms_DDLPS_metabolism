@@ -33,6 +33,7 @@ library(sjstats)
 library(UpSetR)
 library(RColorBrewer)
 library(cowplot)
+library(xlsx)
 ```
 
 ```{r, Set statistical cutoffs}
@@ -429,3 +430,29 @@ volcano_plotter(TreVsUntreLMME_low,"Atorvastatin vs Control, MDM2 lower only")[[
 
 ```
 
+# Save results into supplementary tables
+```{r,eval=FALSE}
+process_results<-function(df){
+    df<-df %>%
+        select(-eta_sq) %>%
+        mutate(class=
+                   lipidomic_key$LM.Main.Class[match(rownames(df),
+                                                     lipidomic_key$name)]) %>%
+        mutate(significant=
+                   abs(log2fc) > fc_thresh &
+                   -log10(mypadj) > -log10(p_thresh))
+    return(df)
+}
+
+write.xlsx(process_results(MDM2HivsLoLMME),file="Lipidomic_results.xlsx",
+           sheetName="MDM2 Higher vs Lower, Untreated")
+write.xlsx(process_results(TreVsUntreLMME),file="Lipidomic_results.xlsx",
+           sheetName="Treated vs Untreated",append=TRUE)
+write.xlsx(process_results(MDM2HivsLoTreatedLMME),file="Lipidomic_results.xlsx",
+           sheetName="MDM2 Higher vs Lower, Treated Cells",append=TRUE)
+write.xlsx(process_results(TreVsUntreLMME_low),file="Lipidomic_results.xlsx",
+           sheetName="MDM2 Low Cells Treated vs Untreated",append=TRUE)
+write.xlsx(process_results(TreVsUntreLMME_high),file="Lipidomic_results.xlsx",
+           sheetName="MDM2 High Cells Treated vs Untreated",append=TRUE)
+
+```
