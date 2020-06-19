@@ -316,68 +316,68 @@ plot_grid(
 ```
 
 
-## MDM2 inhibitor treated, MDM2 Higher vs MDM2 inhibitor treated, MDM2 Lower
+## MDM2 inhibitor treated vs untreated cells
 
 ```{r,fig.height=6,eval=TRUE}
 
-mdm2_high_treated_samps<-sample_table %>%
-    filter(MDM2_status=="High" & Treatment_status=="Treated") %>%
+treated_samps<-sample_table %>%
+    filter(Treatment_status=="Treated") %>%
     dplyr::select(SAMPLE.NAME) %>%
     as.matrix() %>%
     as.vector()
-mdm2_low_treated_samps<-sample_table %>%
-    filter(MDM2_status=="Low" & Treatment_status=="Treated") %>%
+untreated_samps<-sample_table %>%
+    filter(Treatment_status=="Untreated" & Cell!="224" & Cell!="224B") %>%
     dplyr::select(SAMPLE.NAME) %>%
     as.matrix() %>%
     as.vector()
-mdm2_high_treated_cells<-sample_table %>%
-    filter(MDM2_status=="High" & Treatment_status=="Treated") %>%
+treated_cells<-sample_table %>%
+    filter(Treatment_status=="Treated") %>%
     dplyr::select(Cell) %>%
     as.matrix() %>%
     as.vector()
-mdm2_low_treated_cells<-sample_table %>%
-    filter(MDM2_status=="Low" & Treatment_status=="Treated") %>%
+untreated_cells<-sample_table %>%
+    filter(Treatment_status=="Untreated" & Cell!="224" & Cell!="224B") %>%
     dplyr::select(Cell) %>%
     as.matrix() %>%
     as.vector()
 
-mysamps<-c(mdm2_high_treated_samps,mdm2_low_treated_samps)
-categ = c(mdm2_high_treated_cells,mdm2_low_treated_cells)
-status = c(rep("High",length(mdm2_high_treated_samps)),rep("Low",length(mdm2_low_treated_samps)))
-if(!exists("mdm2TreHiLoLMME")){
-    mdm2TreHiLoLMME<-t(sapply(c(1:nrow(metabFiltered)), function(x){
+mysamps<-c(treated_samps,untreated_samps)
+categ = c(treated_cells,untreated_cells)
+status = c(rep("High",length(treated_samps)),rep("Low",length(untreated_samps)))
+if(!exists("TreUntreLMME")){
+    TreUntreLMME<-t(sapply(c(1:nrow(metabFiltered)), function(x){
         df=data.frame(t(metabFiltered[x, mysamps]),categ,status)
         colnames(df)[1]="y"
         fit.null<-lmer(y ~ (1|categ), data = df,REML=FALSE)
         fit<-lmer(y ~ status + (1|categ), data = df,REML=FALSE)
         anovaFit<-anova(fit.null,fit)
-        log2fc = mean(as.matrix(metabFiltered[x,mdm2_high_treated_samps])) - mean(as.matrix(metabFiltered[x,mdm2_low_treated_samps]))
+        log2fc = mean(as.matrix(metabFiltered[x,treated_samps])) - mean(as.matrix(metabFiltered[x,untreated_samps]))
         return(c(anovaFit$'Pr(>Chisq)'[2],log2fc))
     }))
     
-    mdm2TreHiLoLMME <- as.data.frame(mdm2TreHiLoLMME)
-    colnames(mdm2TreHiLoLMME)<-c("myp","log2fc")
-    mdm2TreHiLoLMME <- mdm2TreHiLoLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
-    mdm2TreHiLoLMME <- mdm2TreHiLoLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
-    mdm2TreHiLoLMME <- mdm2TreHiLoLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
+    TreUntreLMME <- as.data.frame(TreUntreLMME)
+    colnames(TreUntreLMME)<-c("myp","log2fc")
+    TreUntreLMME <- TreUntreLMME %>% mutate(mypadj=p.adjust(myp,method="fdr"))
+    TreUntreLMME <- TreUntreLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
+    TreUntreLMME <- TreUntreLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
 }
-hist(mdm2TreHiLoLMME[,1],breaks=100)
+hist(TreUntreLMME[,1],breaks=100)
 
-mdm2TreHiLoLMME = mdm2TreHiLoLMME %>%
+TreUntreLMME = TreUntreLMME %>%
     mutate(class=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,
                         as.character(metabmeta$SUPER.PATHWAY[match(rownames(metabFiltered),metabmeta$BIOCHEMICAL)]),
                         "Not Significant"))
 
-mdm2TreHiLoLMME$name = rownames(metabFiltered)
+TreUntreLMME$name = rownames(metabFiltered)
 
-p<-ggplot(data=mdm2TreHiLoLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
+p<-ggplot(data=TreUntreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     geom_point(aes(size=size,text=name)) +
     theme_classic(base_size=20) +
     scale_color_manual(values = myPalette) +
-    ggtitle("MDM2 higher vs lower (treated)") +
+    ggtitle("MDM2 Inhibitor Treated vs Untreated") +
     theme(plot.title = element_text(hjust = 0.5)) +
     ylab("-log10 FDR") +
-    xlab("log2(MDM2Hi Treated)/log2(MDM2Lo Treated)") +
+    xlab("log2(Treated)/log2(Untreated)") +
     geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
@@ -394,19 +394,21 @@ p
 
 ```{r,fig.height=6,eval=TRUE}
 mdm2_high_untreated_samps_no224<-sample_table %>%
-    filter(MDM2_status=="High" & Treatment_status=="Untreated" & Cell != "224") %>%
+    ##filter(MDM2_status=="High" & Treatment_status=="Untreated" & Cell != "224") %>%
+    filter(MDM2_status=="High" & Treatment_status=="Untreated") %>%
     dplyr::select(SAMPLE.NAME) %>%
     as.matrix() %>%
     as.vector()
 mdm2_high_untreated_cells_no224<-sample_table %>%
-    filter(MDM2_status=="High" & Treatment_status=="Untreated" & Cell != "224") %>%
+    ##filter(MDM2_status=="High" & Treatment_status=="Untreated" & Cell != "224") %>%
+    filter(MDM2_status=="High" & Treatment_status=="Untreated") %>%
     dplyr::select(Cell) %>%
     as.matrix() %>%
     as.vector()
 
 mysamps = c(mdm2_high_treated_samps,mdm2_high_untreated_samps_no224)
-  categ = c(mdm2_high_treated_cells,mdm2_high_untreated_cells_no224)
-  status = c(rep("High_treated",length(mdm2_high_treated_samps)),rep("high",length(mdm2_high_untreated_samps_no224)))
+categ = c(mdm2_high_treated_cells,mdm2_high_untreated_cells_no224)
+status = c(rep("High_treated",length(mdm2_high_treated_samps)),rep("high",length(mdm2_high_untreated_samps_no224)))
 if(!exists("mdm2HiTreLMME")){
   mdm2HiTreLMME<-t(sapply(c(1:nrow(metabFiltered)), function(x){
       df=data.frame(t(metabFiltered[x, mysamps]),categ,status)
@@ -428,7 +430,7 @@ if(!exists("mdm2HiTreLMME")){
   mdm2HiTreLMME <- mdm2HiTreLMME %>% mutate(alpha=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,0.05,0.025))
   mdm2HiTreLMME <- mdm2HiTreLMME %>% mutate(size=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,4,2))
 }
-  hist(mdm2HiTreLMME[,1],breaks=100)
+hist(mdm2HiTreLMME[,1],breaks=100)
 
 mdm2HiTreLMME$name = rownames(metabFiltered)
 
@@ -445,7 +447,7 @@ mdm2HiTreLMME = mdm2HiTreLMME %>%
       theme(plot.title = element_text(hjust = 0.5)) +
       theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
       ylab("-log10 FDR") +
-      xlab("log2(MDM2Hi Treated)-log2(MDM2Hi)") +
+      xlab("log2(MDM2Hi Treated)/log2(MDM2Hi Untreated)") +
       #geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
       geom_vline(xintercept = 0.75, lty = 2) +
       geom_vline(xintercept = -0.75, lty = 2) +
@@ -513,7 +515,7 @@ p<-ggplot(data=mdm2LoTreLMME, aes(x=log2fc, y=-log10(mypadj), colour=class)) +
     theme(plot.title = element_text(hjust = 0.5)) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
     ylab("-log10 FDR") +
-    xlab("log2(MDM2Lo Treated - MDM2Lo)") +
+    xlab("log2(MDM2Lo Treated)/log2(MDM2Lo Untreated)") +
     geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
     geom_vline(xintercept = 0.75, lty = 2) +
     geom_vline(xintercept = -0.75, lty = 2) +
@@ -662,8 +664,8 @@ process_results<-function(df){
 
 write.xlsx(process_results(mdm2HiLoLMME),file="Metabolomic_results.xlsx",
            sheetName="MDM2 Higher vs Lower, Untreated")
-write.xlsx(process_results(mdm2TreHiLoLMME),file="Metabolomic_results.xlsx",
-           sheetName="MDM2 Higher vs Lower, Treated Cells",append=TRUE)
+write.xlsx(process_results(TreUntreLMME),file="Metabolomic_results.xlsx",
+           sheetName="Treated vs Untreated Cells",append=TRUE)
 write.xlsx(process_results(mdm2LoTreLMME),file="Metabolomic_results.xlsx",
            sheetName="MDM2 Low Cells Treated vs Untreated",append=TRUE)
 write.xlsx(process_results(mdm2HiTreLMME),file="Metabolomic_results.xlsx",
