@@ -448,13 +448,14 @@ mdm2HiTreLMME = mdm2HiTreLMME %>%
       theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
       ylab("-log10 FDR") +
       xlab("log2(MDM2Hi Treated)/log2(MDM2Hi Untreated)") +
-      #geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
+      geom_hline(yintercept = -log10(pval_thresh),lty = 2) +
       geom_vline(xintercept = 0.75, lty = 2) +
       geom_vline(xintercept = -0.75, lty = 2) +
       scale_alpha(range=c(0.2,0.7)) +
-      scale_size(range=c(2,4)) +
+      scale_size(range=c(2,2)) +
       guides(size=FALSE,alpha=FALSE,label=FALSE,
-             colour = guide_legend(override.aes = list(size=10)))
+             colour = guide_legend(override.aes = list(size=10))) +
+      ylim(0,1.6)
 ##ggplotly(p)
 p
 
@@ -550,7 +551,7 @@ fig2A
 # Post-hoc Analyses
 
 ## Hierarchical clustering
-```{r,eval=TRUE}
+```{r,eval=FALSE}
 ## metabs_of_interest<-resMDM2HiLoLMME %>%
 ##     filter(class!="Not Significant") %>%
 ##     dplyr::select(name) %>%
@@ -658,18 +659,22 @@ process_results<-function(df){
         mutate(class=
                    as.character(metabmeta$SUPER.PATHWAY[match(name,
                                                               metabmeta$BIOCHEMICAL)])) %>%
-        mutate(significant=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,TRUE,FALSE))
+        mutate(significant=ifelse(mypadj<pval_thresh & abs(log2fc) > 0.75,TRUE,FALSE)) %>%
+        rename(Raw_p=myp) %>%
+        rename(FDR=mypadj) %>%
+        rename(Metabolon_Superpathway=class) %>%
+        select(name, Metabolon_Superpathway,everything())
     return(df)
 }
 
 write.xlsx(process_results(mdm2HiLoLMME),file="Metabolomic_results.xlsx",
-           sheetName="MDM2 Higher vs Lower, Untreated")
+           sheetName="MDM2 Higher vs Lower, Untreated",row.names=FALSE)
 write.xlsx(process_results(TreUntreLMME),file="Metabolomic_results.xlsx",
-           sheetName="Treated vs Untreated Cells",append=TRUE)
+           sheetName="Treated vs Untreated Cells",append=TRUE,row.names=FALSE)
 write.xlsx(process_results(mdm2LoTreLMME),file="Metabolomic_results.xlsx",
-           sheetName="MDM2 Low Cells Treated vs Untreated",append=TRUE)
+           sheetName="MDM2 Low Cells Treated vs Untreated",append=TRUE,row.names=FALSE)
 write.xlsx(process_results(mdm2HiTreLMME),file="Metabolomic_results.xlsx",
-           sheetName="MDM2 High Cells Treated vs Untreated",append=TRUE)
+           sheetName="MDM2 High Cells Treated vs Untreated",append=TRUE,row.names=FALSE)
 
 ```
 

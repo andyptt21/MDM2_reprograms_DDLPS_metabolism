@@ -440,19 +440,23 @@ process_results<-function(df){
                                                      lipidomic_key$name)]) %>%
         mutate(significant=
                    abs(log2fc) > fc_thresh &
-                   -log10(mypadj) > -log10(p_thresh))
+                   -log10(mypadj) > -log10(p_thresh)) %>%
+        rename(Raw_p=myp) %>%
+        rename(FDR=mypadj) %>%
+        rename(LipidMaps_Class=class) %>%
+        select(name, LipidMaps_Class,everything())
     return(df)
 }
 
 write.xlsx(process_results(MDM2HivsLoLMME),file="Lipidomic_results.xlsx",
-           sheetName="MDM2 Higher vs Lower, Untreated")
+           sheetName="MDM2 Higher vs Lower, Untreated",row.names=FALSE)
 write.xlsx(process_results(TreVsUntreLMME),file="Lipidomic_results.xlsx",
-           sheetName="Treated vs Untreated",append=TRUE)
+           sheetName="Treated vs Untreated",append=TRUE,row.names=FALSE)
 write.xlsx(process_results(MDM2HivsLoTreatedLMME),file="Lipidomic_results.xlsx",
-           sheetName="MDM2 Higher vs Lower, Treated Cells",append=TRUE)
+           sheetName="MDM2 Higher vs Lower, Treated Cells",append=TRUE,row.names=FALSE)
 write.xlsx(process_results(TreVsUntreLMME_low),file="Lipidomic_results.xlsx",
-           sheetName="MDM2 Low Cells Treated vs Untreated",append=TRUE)
+           sheetName="MDM2 Low Cells Treated vs Untreated",append=TRUE,row.names=FALSE)
 write.xlsx(process_results(TreVsUntreLMME_high),file="Lipidomic_results.xlsx",
-           sheetName="MDM2 High Cells Treated vs Untreated",append=TRUE)
+           sheetName="MDM2 High Cells Treated vs Untreated",append=TRUE,row.names=FALSE)
 
 ```
